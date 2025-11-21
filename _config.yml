@@ -31,7 +31,7 @@ plugins:
 # ═══════════════════════════════════════════════════════════════
 author:
   name: "Junggi Kim"
-  # avatar: "/assets/images/bio-photo.jpg"  # 이미지 추가 후 주석 해제
+  avatar: "https://github.com/JunggiKim.png"
   bio: "Backend Developer"
   location: "Seoul, Korea"
   links:
