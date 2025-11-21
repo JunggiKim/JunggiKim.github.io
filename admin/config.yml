@@ -1,0 +1,41 @@
+backend:
+  name: github
+  repo: JunggiKim/JunggiKim.github.io
+  branch: main
+
+# 로컬 테스트용 (npx decap-server 실행 시)
+# local_backend: true
+
+media_folder: "assets/images/uploads"
+public_folder: "/assets/images/uploads"
+
+collections:
+  # 발행된 글
+  - name: "posts"
+    label: "게시글"
+    folder: "_posts"
+    create: true
+    slug: "{{year}}-{{month}}-{{day}}-{{slug}}"
+    fields:
+      - { label: "제목", name: "title", widget: "string" }
+      - { label: "날짜", name: "date", widget: "datetime", format: "YYYY-MM-DD HH:mm:ss ZZ" }
+      - { label: "카테고리", name: "categories", widget: "list", default: ["blog"] }
+      - { label: "태그", name: "tags", widget: "list" }
+      - { label: "목차 표시", name: "toc", widget: "boolean", default: true }
+      - { label: "목차 고정", name: "toc_sticky", widget: "boolean", default: true }
+      - { label: "공개 여부", name: "published", widget: "boolean", default: true }
+      - { label: "본문", name: "body", widget: "markdown" }
+
+  # 임시저장 (드래프트)
+  - name: "drafts"
+    label: "임시저장"
+    folder: "_drafts"
+    create: true
+    slug: "{{slug}}"
+    fields:
+      - { label: "제목", name: "title", widget: "string" }
+      - { label: "카테고리", name: "categories", widget: "list", default: ["blog"] }
+      - { label: "태그", name: "tags", widget: "list" }
+      - { label: "목차 표시", name: "toc", widget: "boolean", default: true }
+      - { label: "목차 고정", name: "toc_sticky", widget: "boolean", default: true }
+      - { label: "본문", name: "body", widget: "markdown" }
