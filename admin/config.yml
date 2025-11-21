@@ -2,9 +2,8 @@ backend:
   name: github
   repo: JunggiKim/JunggiKim.github.io
   branch: main
-
-# 로컬 테스트용 (npx decap-server 실행 시)
-# local_backend: true
+  # GitHub OAuth App Client ID (아래 가이드 참고하여 생성 후 입력)
+  # app_id: YOUR_GITHUB_OAUTH_APP_CLIENT_ID
 
 media_folder: "assets/images/uploads"
 public_folder: "/assets/images/uploads"
