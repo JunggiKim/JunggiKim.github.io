@@ -2,8 +2,7 @@ backend:
   name: github
   repo: JunggiKim/JunggiKim.github.io
   branch: main
-  # GitHub OAuth App Client ID (아래 가이드 참고하여 생성 후 입력)
-  # app_id: YOUR_GITHUB_OAUTH_APP_CLIENT_ID
+  app_id: Ov23liVGUOGG25dh825I
 
 media_folder: "assets/images/uploads"
 public_folder: "/assets/images/uploads"
