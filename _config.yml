@@ -2,7 +2,7 @@
 # Site Settings
 # ═══════════════════════════════════════════════════════════════
 title: "Junggi Kim"
-subtitle: "Developer Blog"
+subtitle: ""
 name: "Junggi Kim"
 description: "개발과 일상을 기록하는 블로그"
 url: "https://junggikim.github.io"
@@ -31,7 +31,7 @@ plugins:
 # ═══════════════════════════════════════════════════════════════
 author:
   name: "Junggi Kim"
-  avatar: "/assets/images/bio-photo.jpg"
+  # avatar: "/assets/images/bio-photo.jpg"  # 이미지 추가 후 주석 해제
   bio: "Backend Developer"
   location: "Seoul, Korea"
   links:
