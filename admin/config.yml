@@ -2,6 +2,7 @@ backend:
   name: github
   repo: JunggiKim/JunggiKim.github.io
   branch: main
+  auth_type: pkce
   app_id: Ov23liVGUOGG25dh825I
 
 media_folder: "assets/images/uploads"
