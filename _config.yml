@@ -1,0 +1,99 @@
+# ═══════════════════════════════════════════════════════════════
+# Site Settings
+# ═══════════════════════════════════════════════════════════════
+title: "Junggi Kim"
+subtitle: "Developer Blog"
+name: "Junggi Kim"
+description: "개발과 일상을 기록하는 블로그"
+url: "https://junggikim.github.io"
+baseurl: ""
+repository: "JunggiKim/JunggiKim.github.io"
+
+# ═══════════════════════════════════════════════════════════════
+# Theme
+# ═══════════════════════════════════════════════════════════════
+remote_theme: "mmistakes/minimal-mistakes@4.24.0"
+minimal_mistakes_skin: "default"
+
+# ═══════════════════════════════════════════════════════════════
+# Plugins
+# ═══════════════════════════════════════════════════════════════
+plugins:
+  - jekyll-paginate
+  - jekyll-sitemap
+  - jekyll-gist
+  - jekyll-feed
+  - jekyll-include-cache
+  - jekyll-seo-tag
+
+# ═══════════════════════════════════════════════════════════════
+# Site Author
+# ═══════════════════════════════════════════════════════════════
+author:
+  name: "Junggi Kim"
+  avatar: "/assets/images/bio-photo.jpg"
+  bio: "Backend Developer"
+  location: "Seoul, Korea"
+  links:
+    - label: "GitHub"
+      icon: "fab fa-fw fa-github"
+      url: "https://github.com/JunggiKim"
+
+# ═══════════════════════════════════════════════════════════════
+# Reading Files
+# ═══════════════════════════════════════════════════════════════
+include:
+  - _pages
+
+# ═══════════════════════════════════════════════════════════════
+# Outputting
+# ═══════════════════════════════════════════════════════════════
+permalink: /:categories/:title/
+paginate: 10
+paginate_path: /page:num/
+timezone: Asia/Seoul
+
+# ═══════════════════════════════════════════════════════════════
+# Defaults
+# ═══════════════════════════════════════════════════════════════
+defaults:
+  # _posts
+  - scope:
+      path: ""
+      type: posts
+    values:
+      layout: single
+      author_profile: true
+      read_time: true
+      comments: true
+      share: false
+      related: true
+      toc: true
+      toc_sticky: true
+      toc_label: "목차"
+  # _pages
+  - scope:
+      path: ""
+      type: pages
+    values:
+      layout: single
+      author_profile: true
+
+# ═══════════════════════════════════════════════════════════════
+# Comments (Giscus)
+# ═══════════════════════════════════════════════════════════════
+comments:
+  provider: "giscus"
+  giscus:
+    repo_id: "R_kgDOQaSvIQ"
+    category_name: "Announcements"
+    category_id: "DIC_kwDOQaSvIc4CyC7O"
+    discussion_term: "pathname"
+    reactions_enabled: "1"
+    theme: "preferred_color_scheme"
+
+# ═══════════════════════════════════════════════════════════════
+# Search
+# ═══════════════════════════════════════════════════════════════
+search: true
+search_full_content: true

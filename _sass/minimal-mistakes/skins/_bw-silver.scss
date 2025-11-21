@@ -1,0 +1,376 @@
+/* ==========================================================================
+   BW Silver Skin - Minimal Black & White & Silver Theme
+   ========================================================================== */
+
+/* ─────────────────────────────────────────────────────────────────────────
+   CSS Custom Properties (for dark mode toggle)
+   ───────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Light Mode (Default) */
+  --background-color: #ffffff;
+  --text-color: #1a1a1a;
+  --primary-color: #2d2d2d;
+  --secondary-color: #8c8c8c;
+  --border-color: #e5e5e5;
+  --code-background: #f5f5f5;
+  --link-color: #2d2d2d;
+  --link-hover-color: #8c8c8c;
+  --masthead-background: #ffffff;
+  --footer-background: #fafafa;
+}
+
+[data-theme="dark"] {
+  /* Dark Mode */
+  --background-color: #0d0d0d;
+  --text-color: #e5e5e5;
+  --primary-color: #c0c0c0;
+  --secondary-color: #808080;
+  --border-color: #2d2d2d;
+  --code-background: #1a1a1a;
+  --link-color: #c0c0c0;
+  --link-hover-color: #ffffff;
+  --masthead-background: #0d0d0d;
+  --footer-background: #0a0a0a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --background-color: #0d0d0d;
+    --text-color: #e5e5e5;
+    --primary-color: #c0c0c0;
+    --secondary-color: #808080;
+    --border-color: #2d2d2d;
+    --code-background: #1a1a1a;
+    --link-color: #c0c0c0;
+    --link-hover-color: #ffffff;
+    --masthead-background: #0d0d0d;
+    --footer-background: #0a0a0a;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Base Styles
+   ───────────────────────────────────────────────────────────────────────── */
+
+html {
+  background-color: var(--background-color);
+}
+
+body {
+  background-color: var(--background-color);
+  color: var(--text-color);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Links */
+a {
+  color: var(--link-color);
+  text-decoration: none;
+  transition: color 0.2s ease;
+
+  &:hover,
+  &:focus {
+    color: var(--link-hover-color);
+  }
+}
+
+/* Headings */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--primary-color);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Masthead (Header)
+   ───────────────────────────────────────────────────────────────────────── */
+
+.masthead {
+  background-color: var(--masthead-background);
+  border-bottom: 1px solid var(--border-color);
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.site-title {
+  color: var(--primary-color) !important;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+.greedy-nav {
+  background-color: var(--masthead-background);
+
+  a {
+    color: var(--text-color);
+
+    &:hover {
+      color: var(--secondary-color);
+    }
+  }
+
+  .visible-links a:before {
+    background: var(--secondary-color);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Page Content
+   ───────────────────────────────────────────────────────────────────────── */
+
+.page__content {
+  h2 {
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.5rem;
+  }
+
+  p, li, dl {
+    color: var(--text-color);
+  }
+}
+
+.page__meta {
+  color: var(--secondary-color);
+}
+
+.page__taxonomy {
+  .sep {
+    color: var(--secondary-color);
+  }
+}
+
+/* Code Blocks */
+div.highlighter-rouge,
+figure.highlight {
+  background-color: var(--code-background);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+code.highlighter-rouge {
+  background-color: var(--code-background);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  padding: 0.1em 0.4em;
+  color: var(--text-color);
+}
+
+pre.highlight {
+  background-color: var(--code-background);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Sidebar & Author Profile
+   ───────────────────────────────────────────────────────────────────────── */
+
+.sidebar {
+  background-color: var(--background-color);
+}
+
+.author__name {
+  color: var(--primary-color);
+}
+
+.author__bio {
+  color: var(--secondary-color);
+}
+
+.author__urls-wrapper {
+  button {
+    background-color: var(--primary-color);
+  }
+}
+
+.author__urls {
+  background-color: var(--background-color);
+  border: 1px solid var(--border-color);
+
+  a {
+    color: var(--text-color);
+
+    &:hover {
+      color: var(--link-hover-color);
+    }
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   TOC (Table of Contents)
+   ───────────────────────────────────────────────────────────────────────── */
+
+.toc {
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background-color: var(--background-color);
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+
+  .nav__title {
+    background-color: var(--primary-color);
+    color: var(--background-color);
+  }
+
+  a {
+    color: var(--text-color);
+
+    &:hover {
+      color: var(--secondary-color);
+    }
+  }
+
+  .active a {
+    color: var(--primary-color);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Footer
+   ───────────────────────────────────────────────────────────────────────── */
+
+.page__footer {
+  background-color: var(--footer-background);
+  border-top: 1px solid var(--border-color);
+  color: var(--secondary-color);
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+
+  a {
+    color: var(--secondary-color);
+
+    &:hover {
+      color: var(--primary-color);
+    }
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Archive & Posts
+   ───────────────────────────────────────────────────────────────────────── */
+
+.archive__item-title {
+  color: var(--primary-color);
+}
+
+.archive__item-excerpt {
+  color: var(--secondary-color);
+}
+
+.list__item {
+  .page__meta {
+    color: var(--secondary-color);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Pagination
+   ───────────────────────────────────────────────────────────────────────── */
+
+.pagination {
+  border-top: 1px solid var(--border-color);
+
+  .pagination--pager {
+    border: 1px solid var(--border-color);
+    background-color: var(--background-color);
+    color: var(--text-color);
+
+    &:hover {
+      background-color: var(--primary-color);
+      color: var(--background-color);
+    }
+
+    &.disabled {
+      color: var(--secondary-color);
+      border-color: var(--border-color);
+    }
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Search
+   ───────────────────────────────────────────────────────────────────────── */
+
+.search__toggle {
+  color: var(--text-color);
+
+  &:hover {
+    color: var(--secondary-color);
+  }
+}
+
+.search-content {
+  background-color: var(--background-color);
+
+  .search-input {
+    background-color: var(--background-color);
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-color);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Dark Mode Toggle Button
+   ───────────────────────────────────────────────────────────────────────── */
+
+.dark-mode-toggle {
+  background: none;
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  margin-left: 1rem;
+
+  &:hover {
+    border-color: var(--secondary-color);
+  }
+
+  .icon {
+    font-size: 1.1rem;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Responsive Navigation
+   ───────────────────────────────────────────────────────────────────────── */
+
+.greedy-nav__toggle {
+  color: var(--text-color);
+
+  &:hover {
+    color: var(--secondary-color);
+  }
+}
+
+.hidden-links {
+  background-color: var(--background-color);
+  border: 1px solid var(--border-color);
+
+  a {
+    color: var(--text-color);
+
+    &:hover {
+      color: var(--secondary-color);
+    }
+  }
+
+  &:before {
+    border-color: transparent transparent var(--border-color);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Tags
+   ───────────────────────────────────────────────────────────────────────── */
+
+.page__taxonomy-item {
+  background-color: var(--code-background);
+  border: 1px solid var(--border-color);
+  color: var(--text-color);
+  border-radius: 4px;
+
+  &:hover {
+    background-color: var(--primary-color);
+    color: var(--background-color);
+  }
+}

@@ -1,0 +1,11 @@
+main:
+  - title: "Home"
+    url: /
+  - title: "About"
+    url: /about/
+  - title: "Tags"
+    url: /tags/
+  - title: "Archive"
+    url: /archive/
+  - title: "Search"
+    url: /search/
