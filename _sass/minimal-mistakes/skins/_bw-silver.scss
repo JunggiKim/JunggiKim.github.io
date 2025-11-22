@@ -227,9 +227,8 @@ pre.highlight {
 
 .page__footer {
   background-color: var(--footer-background);
-  border-top: 1px solid var(--border-color);
   color: var(--secondary-color);
-  transition: background-color 0.3s ease, border-color 0.3s ease;
+  transition: background-color 0.3s ease;
 
   a {
     color: var(--secondary-color);
