@@ -33,7 +33,7 @@ plugins:
 author:
   name: "Junggi Kim"
   avatar: "https://github.com/JunggiKim.png"
-  bio: "Backend Developer"
+  bio: ""
   location: "Seoul, Korea"
   links:
     - label: "GitHub"
