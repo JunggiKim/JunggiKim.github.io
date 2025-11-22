@@ -3,7 +3,5 @@ main:
     url: /
   - title: "About"
     url: /about/
-  - title: "Tags"
-    url: /tags/
   - title: "Search"
     url: /search/
