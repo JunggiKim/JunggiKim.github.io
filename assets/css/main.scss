@@ -74,3 +74,19 @@ code, pre {
   background: var(--primary-color);
   color: var(--background-color);
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   Footer - Force White Background
+   ═══════════════════════════════════════════════════════════════ */
+.page__footer {
+  background-color: #ffffff !important;
+  border-top: 1px solid #e5e5e5 !important;
+}
+
+.page__footer-follow {
+  background-color: #ffffff !important;
+}
+
+.page__footer-copyright {
+  background-color: #ffffff !important;
+}
