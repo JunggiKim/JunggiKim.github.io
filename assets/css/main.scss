@@ -1618,9 +1618,21 @@ pre, code {
   animation: fadeInUp 0.5s ease-out;
 }
 
-/* 다크모드 네비게이션 - 테두리 제거 */
+/* 다크모드 네비게이션 - 배경과 동일하게 (완전 투명) */
 [data-theme="dark"] .greedy-nav {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   border: none !important;
+  box-shadow: none !important;
+}
+
+[data-theme="dark"] .greedy-nav::before,
+[data-theme="dark"] .greedy-nav::after {
+  display: none !important;
+  content: none !important;
 }
 
 [data-theme="dark"] .greedy-nav * {
@@ -2099,15 +2111,20 @@ pre, code {
 
 /* 🌙 Dark Mode Specific Styles - Liquid Glass */
 [data-theme="dark"] {
-  /* 네비게이션 바 - 배경과 동일하게 (투명) */
+  /* 네비게이션 바 - 배경과 동일하게 (완전 투명) */
   .greedy-nav {
     background: transparent !important;
+    background-color: transparent !important;
     background-image: none !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
     border: none !important;
-    border-radius: 22px !important;
     box-shadow: none !important;
+
+    &::before,
+    &::after {
+      display: none !important;
+    }
   }
 
   /* 나머지는 투명 유지 */
