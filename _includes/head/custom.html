@@ -3,3 +3,145 @@
 
 <!-- JetBrains Mono Font (Code) -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jetbrains-mono@1.0.6/css/jetbrains-mono.min.css" />
+
+<!-- 💎 Liquid Glass SVG Filters -->
+<script>
+  // SVG 굴절 필터를 body에 동적 추가
+  document.addEventListener('DOMContentLoaded', function() {
+    const svgFilters = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svgFilters.setAttribute('width', '0');
+    svgFilters.setAttribute('height', '0');
+    svgFilters.setAttribute('style', 'position:absolute;pointer-events:none;');
+    svgFilters.innerHTML = `
+      <!-- Liquid Glass 굴절 효과 - 미세한 물결 -->
+      <filter id="liquid-glass-subtle">
+        <feTurbulence type="fractalNoise" baseFrequency="0.015" numOctaves="2" result="noise" seed="1"/>
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="3" xChannelSelector="R" yChannelSelector="G"/>
+      </filter>
+
+      <!-- Liquid Glass 굴절 효과 - 중간 -->
+      <filter id="liquid-glass-medium">
+        <feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="3" result="noise" seed="2"/>
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="5" xChannelSelector="R" yChannelSelector="G"/>
+      </filter>
+
+      <!-- Liquid Glass 굴절 효과 - 강함 (호버용) -->
+      <filter id="liquid-glass-strong">
+        <feTurbulence type="fractalNoise" baseFrequency="0.01" numOctaves="3" result="noise" seed="3"/>
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="8" xChannelSelector="R" yChannelSelector="G"/>
+      </filter>
+    `;
+    document.body.insertBefore(svgFilters, document.body.firstChild);
+  });
+</script>
+
+<!-- 🌓 Dark Mode Theme Initialization (깜빡임 방지) -->
+<script>
+  // 페이지 로드 전에 테마 적용 (깜빡임 방지)
+  (function() {
+    // localStorage에서 저장된 테마 가져오기
+    const savedTheme = localStorage.getItem('theme-preference');
+
+    // 시스템 다크모드 설정 감지
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+    // 우선순위: 저장된 테마 > 시스템 설정 > 기본값(light)
+    const theme = savedTheme || (prefersDark ? 'dark' : 'light');
+
+    // HTML에 테마 속성 즉시 적용
+    document.documentElement.setAttribute('data-theme', theme);
+  })();
+</script>
+
+<!-- 🖱️ 카드 전체 클릭 시 링크 이동 -->
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    // 클릭 가능한 카드로 만들기
+    function makeCardsClickable() {
+      // 홈페이지 글 목록 + 관련 글 + 이전/다음 글 카드
+      const cards = document.querySelectorAll('.archive__item, .grid__item');
+
+      cards.forEach(function(card) {
+        // 카드 내부의 첫 번째 링크 찾기
+        const link = card.querySelector('a[href]');
+        if (!link) return;
+
+        const url = link.getAttribute('href');
+
+        // 카드 스타일 - 클릭 가능하게 표시
+        card.style.cursor = 'pointer';
+
+        // 카드 클릭 이벤트
+        card.addEventListener('click', function(e) {
+          // 이미 링크나 버튼을 클릭한 경우는 무시
+          if (e.target.tagName === 'A' || e.target.tagName === 'BUTTON') {
+            return;
+          }
+          // 링크 내부 요소 클릭한 경우도 무시
+          if (e.target.closest('a') || e.target.closest('button')) {
+            return;
+          }
+
+          // 카드 클릭 시 해당 글로 이동
+          window.location.href = url;
+        });
+      });
+    }
+
+    makeCardsClickable();
+  });
+</script>
+
+<!-- 🌓 Dark Mode Toggle Functionality -->
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const toggleButton = document.querySelector('.theme-toggle');
+    const toggleIcon = document.getElementById('theme-toggle-icon');
+
+    if (!toggleButton || !toggleIcon) return;
+
+    // 현재 테마 가져오기
+    function getCurrentTheme() {
+      return document.documentElement.getAttribute('data-theme') || 'light';
+    }
+
+    // 아이콘 업데이트
+    function updateIcon(theme) {
+      if (theme === 'dark') {
+        toggleIcon.classList.remove('fa-moon');
+        toggleIcon.classList.add('fa-sun');
+      } else {
+        toggleIcon.classList.remove('fa-sun');
+        toggleIcon.classList.add('fa-moon');
+      }
+    }
+
+    // 초기 아이콘 설정
+    updateIcon(getCurrentTheme());
+
+    // 토글 버튼 클릭 이벤트
+    toggleButton.addEventListener('click', function() {
+      const currentTheme = getCurrentTheme();
+      const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+
+      // 테마 전환
+      document.documentElement.setAttribute('data-theme', newTheme);
+
+      // localStorage에 저장
+      localStorage.setItem('theme-preference', newTheme);
+
+      // 아이콘 업데이트
+      updateIcon(newTheme);
+    });
+
+    // 시스템 테마 변경 감지
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+      // 사용자가 수동으로 설정한 테마가 없을 때만 시스템 설정 따라가기
+      if (!localStorage.getItem('theme-preference')) {
+        const newTheme = e.matches ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', newTheme);
+        updateIcon(newTheme);
+      }
+    });
+  });
+</script>

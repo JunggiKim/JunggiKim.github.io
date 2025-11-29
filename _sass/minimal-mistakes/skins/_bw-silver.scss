@@ -25,13 +25,24 @@
   --background-color: #0d0d0d;
   --text-color: #e5e5e5;
   --primary-color: #c0c0c0;
-  --secondary-color: #808080;
+  --secondary-color: #ffffff;
   --border-color: #2d2d2d;
   --code-background: #1a1a1a;
   --link-color: #c0c0c0;
   --link-hover-color: #ffffff;
   --masthead-background: #0d0d0d;
   --footer-background: #0a0a0a;
+
+  /* 프로필 bio 텍스트 흰색 */
+  .author__bio {
+    color: #ffffff !important;
+  }
+
+  /* 네비게이션 테두리 제거 */
+  .greedy-nav {
+    border: none !important;
+    border-color: transparent !important;
+  }
 }
 
 @media (prefers-color-scheme: dark) {
