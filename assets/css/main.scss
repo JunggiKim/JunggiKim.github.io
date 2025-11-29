@@ -788,11 +788,41 @@ code.highlighter-rouge {
 .author__urls li a {
   color: var(--text-tertiary);
   text-shadow: 0 1px 2px var(--text-shadow-light);
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.3em 0.5em;
+  border-radius: 8px;
+  position: relative;
+
+  /* 아이콘 스타일 */
+  i, .fa, .fas, .fab, svg {
+    transition: all 0.3s ease;
+  }
 
   &:hover {
     color: var(--accent-primary);
-    transform: translateX(5px);
+    background: rgba(102, 126, 234, 0.1);
+
+    /* 아이콘 확대 + 색상 변경 */
+    i, .fa, .fas, .fab, svg {
+      transform: scale(1.2);
+      color: var(--accent-primary);
+    }
+  }
+}
+
+/* 다크모드 프로필 링크 호버 */
+[data-theme="dark"] .author__urls li a {
+  &:hover {
+    color: var(--accent-primary);
+    background: rgba(100, 140, 255, 0.15);
+    text-shadow: 0 0 10px rgba(100, 140, 255, 0.5);
+
+    i, .fa, .fas, .fab, svg {
+      filter: drop-shadow(0 0 6px var(--accent-primary));
+    }
   }
 }
 
