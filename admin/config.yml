@@ -1,0 +1,93 @@
+# Sveltia CMS Configuration
+# GitHub OAuth를 위해 Cloudflare Worker 필요
+# 설정 후 base_url을 실제 Worker URL로 변경하세요
+
+backend:
+  name: github
+  repo: JunggiKim/JunggiKim.github.io
+  branch: main
+  # Cloudflare Worker URL (설정 후 변경 필요)
+  # base_url: https://your-worker-name.workers.dev
+
+# 로컬 개발 시 사용 (npx @sveltia/cms-proxy)
+local_backend: true
+
+# 미디어 파일 설정
+media_folder: "assets/images/uploads"
+public_folder: "/assets/images/uploads"
+
+# 사이트 정보
+site_url: https://junggikim.github.io
+display_url: https://junggikim.github.io
+
+# 한국어 설정
+locale: ko
+
+# 슬러그 설정 (URL 친화적)
+slug:
+  encoding: unicode
+  clean_accents: true
+  sanitize_replacement: "-"
+
+# 컬렉션 정의
+collections:
+  # 블로그 글
+  - name: "posts"
+    label: "블로그 글"
+    label_singular: "글"
+    folder: "_posts"
+    create: true
+    slug: "{{year}}-{{month}}-{{day}}-{{slug}}"
+    summary: "{{title}} ({{year}}-{{month}}-{{day}})"
+    sortable_fields:
+      fields: ["date", "title"]
+      default:
+        field: date
+        direction: descending
+    # 미리보기 패널 비활성화
+    editor:
+      preview: false
+    fields:
+      # 1. 제목 (맨 위)
+      - label: "제목"
+        name: "title"
+        widget: "string"
+        required: true
+
+      # 2. 카테고리
+      - label: "카테고리"
+        name: "categories"
+        widget: "select"
+        options: ["개발", "일상"]
+        default: ["개발"]
+        multiple: true
+
+      # 3. 공개 여부
+      - label: "공개"
+        name: "published"
+        widget: "boolean"
+        default: true
+
+      # 4. 작성일 (새 글 작성 시 자동으로 현재 시간)
+      - label: "작성일"
+        name: "date"
+        widget: "datetime"
+        format: "YYYY-MM-DD HH:mm:ss ZZ"
+        date_format: "YYYY-MM-DD"
+        time_format: "HH:mm"
+        required: true
+        default: "{{now}}"
+
+      # 5. 본문 (맨 아래)
+      - label: "본문"
+        name: "body"
+        widget: "markdown"
+
+      # 자동 설정 (숨김)
+      - name: "toc"
+        widget: "hidden"
+        default: true
+
+      - name: "toc_sticky"
+        widget: "hidden"
+        default: true

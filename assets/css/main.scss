@@ -198,6 +198,7 @@ code, pre {
   margin: 2em auto;
   padding: 2em;
   transition: all 0.4s ease;
+  overflow: visible !important;  /* 방법1: TOC가 카드 밖으로 나갈 수 있게 */
 
   &:hover {
     background: var(--glass-bg-hover);
@@ -205,6 +206,14 @@ code, pre {
     transform: none;
   }
 }
+
+/* 방법1: page__content도 overflow visible */
+.page__content {
+  overflow: visible !important;
+}
+
+/* ━━━ TOC 레이아웃 - CSS Grid 기반 완전 재설계 ━━━ */
+/* 기존 테마의 float/negative-margin 방식 대신 CSS Grid 사용 */
 
 .page__inner-wrap {
   background: transparent;
@@ -326,143 +335,143 @@ textarea:focus {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   📐 레이아웃 조정 - 화면 폭 최대한 활용
+   📐 레이아웃 - 기본 테마 존중 (minimal-mistakes)
    ═══════════════════════════════════════════════════════════════ */
 
-/* 메인 컨테이너 - 폭 확장 */
-#main {
-  max-width: 1800px !important;  /* 1280px → 1800px: 더 넓게 */
-  margin-left: 1em !important;
-  margin-right: 1em !important;
-  padding-left: 0.5em !important;
-  padding-right: 0.5em !important;
-}
+/*
+ * 기본 테마 레이아웃 비율 유지:
+ * - #main: max-width 1280px (80em 이상)
+ * - .sidebar (프로필): 200px / 300px
+ * - .page: calc(100% - 사이드바) with padding-right for TOC
+ * - .sidebar__right (TOC): margin-right: -200px/-300px
+ *
+ * 레이아웃 커스텀 최소화 - 기본 테마가 잘 동작함
+ */
 
-/* 왼쪽 프로필 사이드바 - 폭 축소 */
-@media (min-width: 64em) {
-  .sidebar {
-    width: 180px !important;  /* 200px → 180px */
-  }
-}
-
-@media (min-width: 80em) {
-  .sidebar {
-    width: 220px !important;  /* 300px → 220px */
-  }
-}
-
-/* 홈 페이지 레이아웃 최적화 */
+/* 홈 페이지만 약간 넓게 */
 .layout--home {
-  #main {
-    max-width: none !important;
-  }
-
   .archive {
-    max-width: 1600px !important;
-    margin: 0 !important;
-    padding: 0 1em !important;
-  }
-
-  .archive__item {
-    width: 100% !important;
-    max-width: none !important;
+    max-width: 1400px;
+    margin: 0 auto;
   }
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   📐 본문 + TOC 레이아웃 - 화면 폭 최대 활용
+   📐 본문 + TOC 레이아웃 - Flexbox 기반 완전 재설계
    ═══════════════════════════════════════════════════════════════ */
 
-/* 기본 래퍼 - 모바일에서는 block */
-.page__wrapper {
-  display: block;
-  width: 100%;
-}
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   해결책 A: Flexbox 기반 - 프로필/본문/TOC 완전 분리
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-/* 데스크탑: 본문 폭 최대화 */
 @media (min-width: 64em) {
-  /* .page__wrapper가 사이드바 옆 전체 공간 사용 */
-  .page__wrapper {
-    float: right;
-    width: calc(100% - 190px);  /* 사이드바 180px + 여백 */
-    padding-left: 1em;
+  /* #main을 Flexbox 컨테이너로 설정 */
+  #main {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: flex-start !important;
+    gap: 2em !important;
+    position: relative !important;
+    max-width: 1400px !important;
+    margin: 0 auto !important;
+    padding: 0 1em !important;
   }
 
-  /* TOC가 있을 때: flexbox로 본문과 TOC 나란히 배치 */
-  .page__wrapper.with-toc {
-    display: flex;
-    flex-direction: row;
-    align-items: flex-start;
-    gap: 1.5em;
+  /* 프로필 사이드바 - 왼쪽 고정 */
+  #main > .sidebar {
+    flex: 0 0 250px !important;
+    position: sticky !important;
+    top: 100px !important;
+    height: fit-content !important;
+    order: 1 !important;
   }
 
-  /* 본문(.page) - 최대한 넓게 */
-  .page__wrapper .page {
+  /* TOC 사이드바 - 오른쪽 고정 + Liquid Glass 직접 적용 */
+  #main > .sidebar__right,
+  #main > aside.sidebar__right {
+    flex: 0 0 220px !important;
+    position: sticky !important;
+    top: 100px !important;
+    height: fit-content !important;
+    max-height: calc(100vh - 140px) !important;
+    overflow-y: auto !important;
+    order: 3 !important;
+    margin: 0 !important;
+
+    /* Liquid Glass 직접 적용 - 프로필 카드와 동일 */
+    @include glass-effect(0.12, 12px);
+    padding: 1.5em !important;
+    border-radius: 20px !important;
+    transition: all 0.3s ease !important;
+
+    &:hover {
+      background: var(--glass-bg-hover) !important;
+      box-shadow: 0 12px 48px 0 var(--glass-shadow) !important;
+    }
+
+    /* 내부 .toc는 배경 투명 처리 */
+    .toc {
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+      padding: 0 !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+    }
+  }
+
+  /* 본문 - 중앙 유연 (single post) */
+  #main > .page,
+  #main > article.page {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    position: static !important;
+    margin: 0 !important;
+    padding: 2em !important;
+    order: 2 !important;
+  }
+
+  /* 홈페이지 콘텐츠 (.archive) - 프로필 오른쪽에 배치 */
+  #main > .archive {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    position: static !important;
+    margin: 0 !important;
+    order: 2 !important;
+  }
+
+  /* 기존 테마의 float 완전 해제 */
+  .page .page__inner-wrap .page__content,
+  .page .page__inner-wrap .page__meta,
+  .page .page__inner-wrap .page__share {
     float: none !important;
-    width: auto !important;
-    padding-right: 0 !important;
-    flex: 1 1 auto;
-    min-width: 0;
-    max-width: 100%;
+    width: 100% !important;
+    clear: none !important;
+    position: static !important;
+    margin-right: 0 !important;
   }
 
-  /* TOC 래퍼 - 적당한 폭 */
-  .page__wrapper .toc-wrapper {
-    flex: 0 0 200px;
-    width: 200px;
-    min-width: 200px;
-  }
-
-  /* Sticky TOC */
-  .page__wrapper .toc-wrapper.sticky {
-    position: sticky;
-    top: 4em;
-    align-self: flex-start;
+  /* .sticky::after pseudo-element 비활성화 */
+  .sidebar__right::after,
+  .sidebar__right.sticky::after {
+    display: none !important;
+    content: none !important;
   }
 }
 
-/* 더 큰 화면 - 본문 더 넓게 */
 @media (min-width: 80em) {
-  .page__wrapper {
-    width: calc(100% - 230px);  /* 사이드바 220px + 여백 */
+  #main {
+    max-width: 1600px !important;
+    gap: 2.5em !important;
   }
 
-  .page__wrapper .toc-wrapper {
-    flex: 0 0 220px;
-    width: 220px;
-    min-width: 220px;
-  }
-}
-
-/* 아주 큰 화면 */
-@media (min-width: 100em) {
-  .page__wrapper {
-    width: calc(100% - 240px);
+  #main > .sidebar {
+    flex: 0 0 280px !important;
   }
 
-  .page__wrapper .toc-wrapper {
-    flex: 0 0 250px;
-    width: 250px;
-  }
-}
-
-/* 모바일/태블릿: 세로 스택 */
-@media (max-width: 63.9375em) {
-  .page__wrapper {
-    float: none;
-    width: 100%;
-    padding-left: 0;
-  }
-
-  .page__wrapper.with-toc {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5em;
-  }
-
-  .page__wrapper .toc-wrapper {
-    order: -1; /* 본문 위에 표시 */
-    width: 100%;
+  #main > .sidebar__right,
+  #main > aside.sidebar__right {
+    flex: 0 0 300px !important;
   }
 }
 
@@ -1264,11 +1273,10 @@ pre, code {
    좌상단에서 빛이 들어오는 유리 표면 느낌
    ═══════════════════════════════════════════════════════════════ */
 
-.page,
+/* .page, .sidebar__right .toc는 제외 - 기본 테마 레이아웃 유지 필요 */
 .archive__item,
 .sidebar,
 .toc-wrapper .toc,
-.sidebar__right .toc,
 .pagination,
 .page__comments,
 .glass {

@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex" />
+  <title>Content Manager | Junggi Kim Blog</title>
+  <!-- Sveltia CMS -->
+  <link href="https://unpkg.com/@sveltia/cms/dist/sveltia-cms.css" rel="stylesheet" />
+</head>
+
+<body>
+  <script src="https://unpkg.com/@sveltia/cms/dist/sveltia-cms.js" type="module"></script>
+  <script>
+    (function () {
+      // Configuration
+      const LABELS = {
+        "제목": "title",
+        "카테고리": "categories",
+        "공개": "published",
+        "작성일": "date",
+        "본문": "body"
+      };
+
+      const CUSTOM_CSS = `
+        /* Main Form Container - CSS GRID */
+        .sveltia-cms-form-container {
+          display: grid !important;
+          grid-template-columns: auto auto 1fr !important; /* Flexible columns */
+          grid-template-rows: auto auto auto auto !important;
+          grid-template-areas:
+            "title title title"
+            "categories published date"
+            "body body body"
+            "others others others" !important;
+          gap: 1rem !important;
+          padding: 1rem !important;
+          align-items: center !important;
+          
+          /* Prevent FOUC (Flash of Unstyled Content) */
+          /* We will reveal it via JS once tagged */
+          opacity: 0; 
+          transition: opacity 0.2s ease-in;
+        }
+        
+        .sveltia-cms-form-container.layout-ready {
+          opacity: 1 !important;
+        }
+
+        /* Common Styles */
+        .custom-field-label {
+          font-weight: bold;
+          margin-right: 0.5rem;
+          white-space: nowrap;
+          display: inline-block;
+          color: var(--sveltia-cms-text-color, #333);
+        }
+        
+        /* ============================================================
+           Grid Area Assignments
+           ============================================================ */
+
+        /* 1. Title */
+        [data-custom-label="title"],
+        [data-custom-field="title"] {
+          grid-area: title !important;
+          width: 100% !important;
+        }
+        [data-custom-label="title"] {
+          margin-bottom: 0.5rem;
+          font-size: 1.2rem !important;
+          display: block !important;
+        }
+
+        /* 2. Categories */
+        /* We want Label and Widget to be in the same area? 
+           No, Grid Area usually takes one element.
+           If we have Label AND Widget, they will overlap in the same cell!
+           
+           Solution: Wrap Label and Widget in a "Virtual" wrapper?
+           No, we can't wrap (that's DOM manipulation).
+           
+           Alternative: Use sub-grid or specific column placement.
+           Or, assign Label to 'categories-label' and Widget to 'categories-widget'?
+           
+           Let's refine the Grid Areas:
+           "title title title title title title"
+           "cat-lbl cat-wid pub-lbl pub-wid date-lbl date-wid"
+           "body body body body body body"
+           
+           But "Categories" widget can be wide.
+           
+           Simpler approach:
+           Use Flexbox for the container, but strict ordering?
+           User agreed to "CSS Grid".
+           
+           If we can't wrap, we must use specific grid positions.
+           
+           Title Label: Row 1, Col 1-End
+           Title Widget: Row 2, Col 1-End
+           
+           Cat Label: Row 3, Col 1
+           Cat Widget: Row 3, Col 2
+           
+           Pub Label: Row 3, Col 3
+           Pub Widget: Row 3, Col 4
+           
+           Date Label: Row 3, Col 5
+           Date Widget: Row 3, Col 6
+           
+           Body Label: Row 4, Col 1-End
+           Body Widget: Row 5, Col 1-End
+           
+           This is robust.
+           
+           Let's define the grid:
+           grid-template-columns: auto auto auto auto auto 1fr;
+        */
+        
+        .sveltia-cms-form-container {
+          grid-template-columns: max-content auto max-content auto max-content 1fr !important;
+          grid-template-areas:
+            "title-lbl title-lbl title-lbl title-lbl title-lbl title-lbl"
+            "title-wid title-wid title-wid title-wid title-wid title-wid"
+            "cat-lbl cat-wid pub-lbl pub-wid date-lbl date-wid"
+            "body-lbl body-lbl body-lbl body-lbl body-lbl body-lbl"
+            "body-wid body-wid body-wid body-wid body-wid body-wid" !important;
+        }
+
+        /* Title */
+        [data-custom-label="title"] { grid-area: title-lbl !important; }
+        [data-custom-field="title"] { grid-area: title-wid !important; }
+
+        /* Categories */
+        [data-custom-label="categories"] { grid-area: cat-lbl !important; align-self: center; }
+        [data-custom-field="categories"] { grid-area: cat-wid !important; min-width: 150px; }
+
+        /* Published */
+        [data-custom-label="published"] { grid-area: pub-lbl !important; margin-left: 1rem; align-self: center; }
+        [data-custom-field="published"] { grid-area: pub-wid !important; }
+
+        /* Date */
+        [data-custom-label="date"] { grid-area: date-lbl !important; margin-left: 1rem; align-self: center; }
+        [data-custom-field="date"] { grid-area: date-wid !important; }
+
+        /* Body */
+        [data-custom-label="body"] { grid-area: body-lbl !important; margin-top: 1rem; }
+        [data-custom-field="body"] { grid-area: body-wid !important; }
+
+        /* Catch-All for others */
+        .sveltia-cms-form-container > :not(.custom-field-label):not(.custom-field-widget):not(style) {
+          grid-column: 1 / -1 !important; /* Full width */
+          order: 999 !important; /* Push to bottom */
+        }
+
+        /* Hide unwanted elements */
+        .hidden-element {
+          display: none !important;
+        }
+      `;
+
+      // Helper to inject styles into Shadow DOM
+      function injectStyles(root) {
+        if (root.querySelector('style[data-custom-layout]')) return;
+        const style = document.createElement('style');
+        style.dataset.customLayout = "true";
+        style.textContent = CUSTOM_CSS;
+        root.appendChild(style);
+      }
+
+      // Helper to hide specific buttons (scoped to root)
+      function hideUnwantedButtons(root) {
+        root.querySelectorAll('button').forEach(btn => {
+          const text = btn.textContent?.toLowerCase() || '';
+          if (text.includes('now') || text.includes('clear') || text.includes('today')) {
+            btn.style.display = 'none';
+          }
+        });
+
+        root.querySelectorAll('label span, span').forEach(span => {
+          if (span.textContent?.trim() === '*') {
+            span.style.display = 'none';
+          }
+        });
+      }
+
+      // Main Layout Function
+      function applyCustomLayout(root) {
+        injectStyles(root);
+
+        // Find the "Title" text node to locate the container
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+        let node;
+        let titleNode = null;
+
+        while (node = walker.nextNode()) {
+          if (node.textContent.includes("제목")) {
+            titleNode = node;
+            break;
+          }
+        }
+
+        if (!titleNode) return;
+        const container = titleNode.parentNode;
+        if (!container) return;
+
+        if (!container.classList.contains('sveltia-cms-form-container')) {
+          container.classList.add('sveltia-cms-form-container');
+        }
+
+        // Tag Elements (NO MOVING)
+        const children = Array.from(container.childNodes);
+        let currentField = null;
+        let taggedCount = 0;
+
+        children.forEach(child => {
+          // Text Nodes (Labels)
+          if (child.nodeType === Node.TEXT_NODE) {
+            const text = child.textContent.trim();
+            if (!text) return;
+
+            let matchedLabel = null;
+            for (const [label, fieldName] of Object.entries(LABELS)) {
+              if (text.includes(label)) {
+                matchedLabel = fieldName;
+                break;
+              }
+            }
+
+            if (matchedLabel) {
+              currentField = matchedLabel;
+              const span = document.createElement('span');
+              span.textContent = text;
+              span.className = 'custom-field-label';
+              span.dataset.customLabel = currentField;
+              container.replaceChild(span, child);
+              taggedCount++;
+              return;
+            }
+          }
+
+          // Elements (Widgets)
+          if (child.nodeType === Node.ELEMENT_NODE) {
+            if (child.tagName === 'STYLE') return;
+
+            if (child.classList.contains('custom-field-label')) {
+              currentField = child.dataset.customLabel;
+              return;
+            }
+
+            if (currentField) {
+              if (!child.classList.contains('custom-field-widget')) {
+                child.classList.add('custom-field-widget');
+                child.dataset.customField = currentField;
+                taggedCount++;
+              }
+            }
+          }
+        });
+
+        hideUnwantedButtons(root);
+
+        // Reveal container if we tagged enough elements
+        if (taggedCount >= 5) { // Title, Cat, Pub, Date, Body (Labels+Widgets)
+          container.classList.add('layout-ready');
+        }
+      }
+
+      // Recursive function
+      function processAllShadowRoots() {
+        function traverse(node) {
+          if (node.shadowRoot) {
+            applyCustomLayout(node.shadowRoot);
+            Array.from(node.shadowRoot.children).forEach(traverse);
+          }
+          if (node.children) {
+            Array.from(node.children).forEach(traverse);
+          }
+        }
+        traverse(document.body);
+      }
+
+      // Polling & Observer
+      let pollCount = 0;
+      const pollInterval = setInterval(() => {
+        processAllShadowRoots();
+        pollCount++;
+        if (pollCount > 120) clearInterval(pollInterval);
+      }, 500);
+
+      const observer = new MutationObserver(() => {
+        processAllShadowRoots();
+      });
+
+      window.addEventListener('load', () => {
+        observer.observe(document.body, {
+          childList: true,
+          subtree: true
+        });
+        processAllShadowRoots();
+
+        // Manual Fix Button
+        const btn = document.createElement('button');
+        btn.textContent = "Fix Layout";
+        btn.style.position = "fixed";
+        btn.style.bottom = "10px";
+        btn.style.right = "10px";
+        btn.style.zIndex = "9999";
+        btn.style.padding = "10px";
+        btn.style.background = "#007bff";
+        btn.style.color = "white";
+        btn.style.border = "none";
+        btn.style.borderRadius = "5px";
+        btn.style.cursor = "pointer";
+        btn.onclick = () => {
+          processAllShadowRoots();
+          alert("Layout fix applied!");
+        };
+        document.body.appendChild(btn);
+      });
+    })();
+  </script>
+</body>
+
+</html>
