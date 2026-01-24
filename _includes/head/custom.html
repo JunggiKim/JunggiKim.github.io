@@ -50,6 +50,13 @@
 
     // HTML에 테마 속성 즉시 적용
     document.documentElement.setAttribute('data-theme', theme);
+
+    // body에도 테마 속성 적용 (CSS 선택자 일관성)
+    document.addEventListener('DOMContentLoaded', function() {
+      if (document.body) {
+        document.body.setAttribute('data-theme', theme);
+      }
+    });
   })();
 </script>
 
@@ -126,6 +133,9 @@
 
       // 테마 전환
       document.documentElement.setAttribute('data-theme', newTheme);
+      if (document.body) {
+        document.body.setAttribute('data-theme', newTheme);
+      }
 
       // localStorage에 저장
       localStorage.setItem('theme-preference', newTheme);
@@ -140,6 +150,9 @@
       if (!localStorage.getItem('theme-preference')) {
         const newTheme = e.matches ? 'dark' : 'light';
         document.documentElement.setAttribute('data-theme', newTheme);
+        if (document.body) {
+          document.body.setAttribute('data-theme', newTheme);
+        }
         updateIcon(newTheme);
       }
     });

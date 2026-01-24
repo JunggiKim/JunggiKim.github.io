@@ -16,3 +16,19 @@ Gemfile.lock
 .idea/
 .vscode/
 *.swp
+
+# Node
+node_modules/
+
+
+# Logs
+server.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
