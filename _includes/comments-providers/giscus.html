@@ -16,12 +16,12 @@
     script.src = 'https://giscus.app/client.js';
 
     script.setAttribute('data-repo', '{{ site.repository }}');
-    script.setAttribute('data-repo-id', 'R_kgDOQaSvIQ');
-    script.setAttribute('data-category', 'Announcements');
-    script.setAttribute('data-category-id', 'DIC_kwDOQaSvIc4CyC7O');
-    script.setAttribute('data-mapping', 'pathname');
+    script.setAttribute('data-repo-id', '{{ site.comments.giscus.repo_id }}');
+    script.setAttribute('data-category', '{{ site.comments.giscus.category_name }}');
+    script.setAttribute('data-category-id', '{{ site.comments.giscus.category_id }}');
+    script.setAttribute('data-mapping', '{{ site.comments.giscus.discussion_term | default: "pathname" }}');
     script.setAttribute('data-strict', '0');
-    script.setAttribute('data-reactions-enabled', '1');
+    script.setAttribute('data-reactions-enabled', '{{ site.comments.giscus.reactions_enabled | default: "1" }}');
     script.setAttribute('data-emit-metadata', '0');
     script.setAttribute('data-input-position', 'bottom');
     script.setAttribute('data-theme', giscusTheme);
