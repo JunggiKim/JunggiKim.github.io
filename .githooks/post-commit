@@ -1,0 +1,23 @@
+#!/bin/bash
+
+# ============================================
+# JunggiKim.github.io post-commit Hook
+# 커밋 후 부모 repo(solodev_root) 포인터 자동 업데이트
+# ============================================
+
+# 서브모듈의 실제 .git 경로에서 부모 repo 경로 추출
+PARENT_REPO=$(git rev-parse --show-superproject-working-tree 2>/dev/null)
+
+if [ -z "$PARENT_REPO" ]; then
+    # 독립 실행 시 (solodev_root 밖에서 clone한 경우)
+    exit 0
+fi
+
+SUBMODULE_REL=$(realpath --relative-to="$PARENT_REPO" "$(pwd)")
+
+echo ""
+echo "[post-commit] 부모 repo 포인터 업데이트 중..."
+cd "$PARENT_REPO"
+git add "$SUBMODULE_REL"
+git commit -m "chore: update submodule $SUBMODULE_REL"
+echo "[post-commit] 완료!"
