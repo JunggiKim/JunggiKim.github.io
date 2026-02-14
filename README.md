@@ -33,6 +33,14 @@ toc_sticky: true
 본문 내용...
 ```
 
+## 게시된 글
+
+| 날짜 | 제목 | 카테고리 |
+|------|------|----------|
+| 2026-02-14 | [코드 한 줄 안 바꿨는데 Docker Push가 183MB에서 21MB로 줄었다](https://junggikim.github.io/tech/spring-boot-docker-appcds-layered-jar/) | tech |
+| 2026-02-14 | [Spring Boot 배포 후 첫 요청이 느린 이유 — JVM Warmup 로그 기반 분석](https://junggikim.github.io/tech/spring-boot-jvm-warmup-cold-start/) | tech |
+| 2026-01-24 | [모바일 데이터에서만 터지는 API 타임아웃 — NAT 문제일까](https://junggikim.github.io/tech/모바일-데이터에서만-터지는-api-타임아웃-nat-문제일까/) | tech |
+
 ## 로컬 실행 (선택)
 
 ```bash
