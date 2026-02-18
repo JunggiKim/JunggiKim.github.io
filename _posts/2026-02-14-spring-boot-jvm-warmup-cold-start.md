@@ -2,129 +2,132 @@
 title: "Spring Boot 첫 요청 지연 분석: Warmup으로 초기화 비용을 어디로 옮길 것인가"
 date: 2026-02-14 10:00:00 +0900
 categories: [tech]
-tags: [spring-boot, jvm, kotlin, ecs, warmup]
+tags: [spring-boot, jvm, warmup, cold-start, ecs, kotlin]
 toc: true
 toc_sticky: true
 ---
 
-> 배포 직후 첫 요청이 느린 이유를 JVM 초기화 단계로 분해하고, Warmup 적용 시 지연이 어떻게 이동하는지 측정 조건과 함께 정리한다.
+> 핵심은 최적화가 아니라 시점 이동이었다. 첫 사용자 요청이 내던 초기화 비용을 배포 직후 Warmup 구간으로 옮겼다.
 
 ---
 
-## 문제 상황
+## 문제를 다시 정의했다
 
-배포 직후 첫 API 응답이 3.5초 수준으로 나왔다. 같은 API의 두 번째 요청은 300ms 안쪽이어서, 코드 경로 자체가 무거운 상황은 아니었다. 로그에는 `Started in 127 seconds`가 찍혔지만, 사용자 체감은 달랐다. 저희는 "기동 완료"와 "첫 요청 준비 완료"를 분리해서 봐야 한다고 판단했다.
+문제의 시작은 단순했다. 배포 직후 첫 요청이 느렸다.
 
 ```text
-Spring Boot Ready 이후 31분 대기
--> 첫 요청 /api/v1/home: 3,447ms
--> 두 번째 요청 /api/v1/home: 315ms
+첫 /api/v1/home 요청: 3,447ms
+두 번째 /api/v1/home 요청: 315ms
 ```
 
-이 글은 세 가지를 답한다. 첫째, 왜 `Started` 이후에도 첫 요청이 느린가. 둘째, Warmup이 어떤 초기화 비용을 선반영하는가. 셋째, 이 방법이 유효한 조건과 한계는 무엇인가.
+같은 API가 바로 다음 호출에서 315ms로 내려온다는 건, 비즈니스 로직 자체가 3초대라는 뜻이 아니다.
+문제는 "코드가 느린가"가 아니라 "초기화 비용이 누구 요청에서 터지는가"였다.
+
+운영 관점에서 질문을 이렇게 바꿨다.
+
+1. Spring Boot `Started` 로그 이후에 아직 끝나지 않은 초기화는 무엇인가?
+2. 그 비용을 사용자 요청 전에 미리 소진할 수 있는가?
+3. 소진 과정에서 장애 전파를 만들지 않는가?
 
 ---
 
-## 측정 조건
+## `Started`와 "첫 요청 준비 완료"는 다르다
 
-아래 조건에서 Before/After를 비교했다. 조건이 바뀌면 수치도 바뀔 수 있으므로, 재현 시 같은 축을 맞추는 게 좋다. 수치는 단일 샘플이 아니라 동일 경로 반복 측정값을 기준으로 기록했다.
+`Started ...`는 Spring Context가 올라왔다는 신호다.
+하지만 첫 요청이 통과하는 전체 경로가 이미 따뜻하다는 의미는 아니다.
 
-| 항목 | 값 |
-|------|----|
-| 서비스 | Spring Boot API 서버 |
-| 대상 API | `/api/v1/home`, `/api/v1/popups` |
-| 환경 | ECS + ALB Health Check |
-| Warmup 대상 | 주요 조회 API 7개 |
-| Warmup 실행 시점 | `ApplicationReadyEvent` 직후 |
-| 트래픽 유입 제어 | Warmup 완료 전 `/actuator/health` = 503 |
+첫 요청에서 추가로 붙는 비용은 보통 아래에서 발생한다.
 
-이 글의 내부 수치는 작성자 공개 승인 후 공유한 운영 계측값이다. 절대값보다 변화 추세와 적용 조건 확인에 초점을 맞춰 해석하는 편이 안전하다.
+| 구간 | 첫 요청에서 붙는 비용 |
+|------|-----------------------|
+| 클래스 로딩 | 처음 참조되는 QueryDSL/Jackson/AOP 관련 클래스 로딩 |
+| DispatcherServlet | 핸들러 매핑/인터셉터 체인 초기화 |
+| Hibernate | SQL 변환 계획/엔티티 매핑/프록시 준비 |
+| HikariCP | 추가 커넥션 생성, 핸드셰이크 |
+| JIT | 인터프리터 실행 -> C1 컴파일 전환 |
+
+결론은 명확했다.
+"기동 완료"와 "사용자 요청에 대한 성능 준비 완료"를 분리해서 다뤄야 한다.
 
 ---
 
-## 동작 방식: 왜 첫 요청이 느려지는가
+## 우리가 선택한 방식: Warmup + Health Gate
 
-Spring Boot Startup이 끝나도 모든 준비가 끝난 것은 아니다. 런타임에서 처음 호출될 때 만들어지는 객체와 캐시가 남아 있다. 이 비용이 첫 사용자 요청에 몰리면, 첫 요청만 유난히 느리게 보인다. 문제를 줄이려면 "초기화 비용의 실행 시점"을 바꿔야 한다.
+대안은 세 가지가 있었다.
 
-### 단계 1. Startup 구간에서 끝나는 일
+| 대안 | 장점 | 단점 | 최종 판단 |
+|------|------|------|-----------|
+| 아무 처리 없음 | 구현 비용 없음 | 첫 사용자 요청에 콜드 스타트 노출 | 미채택 |
+| 전역 eager 초기화 | 일부 초기화 선반영 | 기동 시간 급증, 불필요한 리소스 선점 | 미채택 |
+| Warmup + Health Gate | 사용자 유입 전 선초기화 가능, 실패 범위 통제 가능 | Warmup 시나리오 관리 비용 | 채택 |
 
-Startup 구간에서는 Bean 등록, DataSource 준비, Tomcat 기동 같은 공통 작업이 처리된다. 이 단계는 서비스가 살아 있는지를 판단하는 데는 충분하다. 다만 실제 요청 경로의 세부 초기화까지 모두 포함하지는 않는다. 그래서 `Started` 로그만으로 첫 요청 성능을 예측하기 어렵다.
+채택 이유는 "가장 빠른" 방법이라서가 아니다.
+장애 영향 범위를 Warmup 단계에 가두고, 사용자 요청 경로에서 콜드 스타트를 제거할 수 있었기 때문이다.
 
-### 단계 2. 첫 요청에서 새로 발생하는 일
+---
 
-첫 요청 시점에는 QueryDSL 경로, Hibernate 메타데이터, DispatcherServlet 경로에서 초기화가 추가로 일어난다. DB 커넥션도 최소 1개에서 확장되는 과정이 붙는다. 핫 메서드는 인터프리터 모드에서 시작해 초기 JIT 구간을 거친다. 이 조합이 첫 요청 지연을 만든다.
+## 동작 흐름
 
-| 초기화 항목 | 첫 요청에서의 영향 |
-|------------|--------------------|
-| 클래스 로딩 | QueryDSL/Jackson/AOP 관련 클래스 최초 로딩 |
-| Hibernate 준비 | SQL 변환 계획, 매핑 메타데이터, 프록시 준비 |
-| DispatcherServlet | 핸들러/인터셉터 체인 초기화 |
-| DB 커넥션 확장 | 커넥션 생성 및 핸드셰이크 비용 |
-| 초기 JIT | 자주 쓰는 메서드의 초기 컴파일 구간 |
-
-### 단계 3. Warmup으로 비용 시점 이동
-
-Warmup은 사용자 대신 시스템이 먼저 API를 호출한다. 핵심은 Health Check와 묶어서 사용자 유입 시점을 늦추는 것이다. 즉, 비용을 없애는 방식이 아니라 비용을 먼저 지불하는 방식이다. 이 구조가 첫 요청 지연을 줄인다.
+아래 순서로 트래픽 유입 시점을 제어했다.
 
 ```mermaid
 sequenceDiagram
     participant App as App Instance
     participant Warmup as Warmup Runner
-    participant LB as Load Balancer
-    participant User as User
+    participant LB as ALB Target Group
+    participant User as User Request
 
     App->>Warmup: ApplicationReadyEvent
-    Warmup->>App: 주요 API 사전 호출
-    App-->>LB: /health = 503 (warmup in progress)
-    Warmup->>App: warmup complete
-    App-->>LB: /health = 200
+    Warmup->>App: 핵심 API 7개 병렬 선호출
+    App-->>LB: /actuator/health = 503 (in_progress)
+    Warmup->>App: 완료 신호 setReady()
+    App-->>LB: /actuator/health = 200 (completed)
     User->>LB: 첫 요청
-    LB->>App: 준비된 인스턴스로 전달
+    LB->>App: 이미 준비된 인스턴스로 전달
 ```
+
+핵심은 두 가지다.
+
+1. Warmup이 끝나기 전에는 Target Group 편입을 막는다.
+2. Warmup 실패가 전체 기동 실패로 번지지 않게 timeout/fail-open 정책을 둔다.
 
 ---
 
-## 구현 방식
+## 구현 포인트
 
-Warmup 구현은 복잡하지 않다. `ApplicationReadyEvent`에서 주요 API를 병렬 호출하고, 완료 시점에 `WarmupState`를 올리면 된다. 실패를 전체 기동 실패로 전파하지 않도록 타임아웃과 예외 처리를 둔다. 이 구성이 운영 안정성과 성능 사이의 균형점이었다.
+### 1) Warmup 트리거
 
-아래 코드는 Warmup을 트리거하는 예시다. 핵심은 이벤트 시점과 실패 처리 정책이다. 코드 길이보다 제어 흐름을 먼저 보는 편이 이해에 도움이 된다.
+Warmup은 `ApplicationReadyEvent` 직후 시작했다.
+실제 요청 경로를 통과시키기 위해 핵심 API를 병렬 호출했다.
 
 ```kotlin
-@Component
-class AppWarmup(
-    private val componentController: ComponentController,
-    private val categoryController: CategoryController,
-    private val searchController: SearchController,
-    private val popupController: PopupController,
-    private val productController: ProductController,
-    private val warmupState: WarmupState,
-) {
-    @EventListener(ApplicationReadyEvent::class)
-    fun onReady(event: ApplicationReadyEvent) {
-        runBlocking {
-            runCatching {
-                withTimeout(WARMUP_TIMEOUT_MS) {
-                    listOf(
-                        asyncIO { componentController.getComponents(userId = null) },
-                        asyncIO { componentController.getLatestProducts(...) },
-                        asyncIO { categoryController.getCategoriesByParent(parentCategoryId = 0) },
-                        asyncIO { searchController.getAutoComplete(keyword = "a", limit = 10) },
-                        asyncIO { searchController.searchProducts(...) },
-                        asyncIO { popupController.getActivePopupList(page = 0, size = 10) },
-                        asyncIO { productController.getRecommendedProducts(...) },
-                    ).awaitAll()
-                }
+@EventListener(ApplicationReadyEvent::class)
+fun onReady(event: ApplicationReadyEvent) {
+    runBlocking {
+        runCatching {
+            withTimeout(30_000L) {
+                listOf(
+                    asyncIO { componentController.getComponents(userId = null) },
+                    asyncIO { componentController.getLatestProducts(...) },
+                    asyncIO { categoryController.getCategoriesByParent(parentCategoryId = 0) },
+                    asyncIO { searchController.getAutoComplete(keyword = "a", limit = 10) },
+                    asyncIO { searchController.searchProducts(ControllerSearchProductRequest(userId = 0)) },
+                    asyncIO { popupController.getActivePopupList(page = 0, size = 10) },
+                    asyncIO { productController.getRecommendedProducts(page = 0, size = 20, userId = null) },
+                ).awaitAll()
             }
         }
-        warmupState.setReady()
     }
+    warmupState.setReady()
 }
 ```
 
-이 코드는 7개 경로를 병렬로 호출해 Warmup 시간을 제한한다. 타임아웃이 발생해도 프로세스 전체를 중단하지 않는다. 대신 Health 상태를 통해 트래픽 유입 시점을 제어한다. 운영에서는 "실패를 숨기지 않되, 실패 범위를 좁히는" 구성이 더 안전했다.
+여기서 중요한 건 "몇 개를 호출했는가"보다 "실제 핫패스를 통과했는가"다.
+실서비스에서 자주 타는 조회 경로를 고정해 두어야 Warmup 가치가 생긴다.
 
-Health Check 연동 코드는 다음과 같다. 이 코드는 Warmup 상태를 외부에 노출하는 역할을 한다. 운영에서는 이 신호가 트래픽 유입 시점을 결정한다.
+### 2) Health Gate
+
+웜업 상태를 Health 응답에 직접 반영했다.
 
 ```kotlin
 @GetMapping("/actuator/health")
@@ -138,56 +141,131 @@ fun actuatorHealth(): ResponseEntity<Map<String, String>> {
 }
 ```
 
-이 방식의 목적은 단순하다. Warmup이 끝나기 전에는 Target Group 편입을 막는다. 그래서 사용자 첫 요청이 초기화 비용을 직접 부담하지 않는다. 운영 장애를 줄이는 데는 이 제어가 핵심이었다.
+이렇게 하면 LB가 Warmup 완료 전 인스턴스를 트래픽 대상에서 제외한다.
+"첫 사용자가 워밍업을 대신 해주는" 상황을 구조적으로 막는다.
+
+### 3) 실패 처리
+
+Warmup은 성능 최적화 단계다.
+가용성을 깨뜨리는 하드 게이트가 되면 안 된다.
+
+- timeout: 30초
+- 실패 정책: 로그 남기고 진행(fail-open)
+- 상태 전환: 마지막에 `setReady()` 실행
+
+즉, 완벽한 워밍업보다 서비스 지속성이 우선이다.
 
 ---
 
-## 선택 과정
+## Warmup 5.2초 동안 JVM에서 실제로 일어난 일
 
-Warmup을 바로 선택하지는 않았다. 먼저 대안을 같은 기준으로 비교했다. 비교 기준은 "첫 요청 품질", "실패 영향 범위", "구현 복잡도"였다.
+### A. 클래스 로딩 비용 선흡수
 
-| 대안 | 장점 | 단점 | 채택 여부 |
-|------|------|------|-----------|
-| 아무 처리 안 함 | 구현 비용 0 | 첫 요청 지연이 사용자에게 노출됨 | 미채택 |
-| 전역 eager 초기화 | 초기화 선반영 가능 | 기동 시간 증가, 불필요한 리소스 선점 | 미채택 |
-| Warmup + Health Gate | 사용자 유입 전 선초기화 가능 | Warmup 시나리오 유지 비용 필요 | 채택 |
+첫 호출 전에는 관련 클래스가 아직 메모리에 없다.
+Warmup이 먼저 호출하면 클래스 로딩/검증 비용을 Warmup이 가져간다.
 
-최종 선택은 Warmup + Health Gate였다. 첫 요청 지연을 숨기는 것이 아니라, 사용자 앞에서 발생하지 않게 옮길 수 있었기 때문이다. 또한 실패 시 영향 범위를 Warmup 단계에 묶을 수 있었다. 이 점이 운영 관점에서 유리했다.
+| 구간 | Warmup 전 첫 사용자 요청 | Warmup 후 첫 사용자 요청 |
+|------|--------------------------|---------------------------|
+| `/api/v1/home` 총 응답 | 3,447ms | 249ms |
+| `ComponentServiceImpl.getHome` | 432ms | 2ms |
+| `findActiveComponentBanners` | 980ms | ~17ms |
+| `findActiveComponentsBySection` | 591ms | 17ms |
+
+### B. DispatcherServlet 초기화 시점 이동
+
+DispatcherServlet은 첫 HTTP 요청 시 초기화되는 비용이 있다.
+Warmup이 먼저 경로를 타면, 사용자 요청에는 이 비용이 붙지 않는다.
+
+### C. Hibernate 메타데이터/쿼리 계획 캐시 선생성
+
+첫 실행 시 Hibernate는 SQL 변환 계획, 엔티티 매핑, 프록시 준비를 수행한다.
+Warmup은 이 과정을 선반영해 두 번째 호출부터 캐시 히트를 만든다.
+
+### D. HikariCP 확장 커넥션 선생성
+
+풀 시작 직후에는 최소 연결만 열린 상태인 경우가 많다.
+Warmup 병렬 호출로 DB 접근이 발생하면 추가 커넥션이 미리 만들어지고, 요청 경로의 대기 시간을 줄인다.
+
+### E. JIT 초기 구간 단축
+
+Warmup만으로 C2까지 모두 올린다고 단정할 수는 없다.
+하지만 인터프리터 구간을 줄이고 C1 전환을 앞당겨 초반 응답 안정성에 도움을 준다.
 
 ---
 
-## 결과와 해석
+## 결과 수치와 해석
 
-결과는 아래처럼 나왔다. 다만 이 수치는 현재 환경 조건에서의 관찰값이고, 동일 수치를 다른 시스템에 그대로 기대하면 안 된다. API 구조와 인프라 구성이 다르면 초기화 비용 분포도 달라진다.
+### 측정 조건
+
+| 항목 | 값 |
+|------|----|
+| 환경 | ECS + ALB Health Check |
+| Warmup 대상 | 주요 조회 API 7개 |
+| Warmup 실행 시점 | ApplicationReadyEvent 직후 |
+| 트래픽 유입 제어 | Warmup 완료 전 `/actuator/health` 503 |
+
+### 결과
 
 ```text
 Before: 첫 /api/v1/home 3,447ms
 After : 첫 /api/v1/home   249ms
 ```
 
-| 메서드 | Before (첫 호출) | After (Warmup 후 첫 호출) |
-|--------|------------------|----------------------------|
-| `ComponentServiceImpl.getHome` | 432ms | 2ms |
-| `findActiveComponentBanners` | 980ms | ~17ms |
-| `findActiveComponentsBySection` | 591ms | 17ms |
+- Warmup 소요: 약 5.2초
+- Ready 총 시간: 131.6초 -> 132.0초 (소폭 증가)
 
-Warmup 실행 시간은 약 5.2초였다. Ready 총 시간은 131.6초에서 132.0초로 소폭 증가했다. 즉, 전체 준비 시간 증가는 작았고 첫 요청 지연 감소 폭은 상대적으로 컸다. 저희는 이 트레이드오프를 수용 가능한 수준으로 판단했다.
+해석은 이렇다.
+기동 전체 시간은 거의 유지하면서, 사용자에게 노출되던 초기화 비용을 배포 직후 구간으로 옮겼다.
 
 ---
 
-## 적용 조건과 한계
+## Warmup과 AppCDS는 역할이 다르다
 
-다음 조건에서는 적용 가치가 높다. 배포 직후 첫 요청 지연이 SLA를 넘고, Health Gate를 제어할 수 있으며, 핫패스 API가 명확할 때다. 이런 서비스는 Warmup 시나리오를 고정하기 쉽다. 또한 개선 여부를 지표로 확인하기도 쉽다.
+둘 다 "초기화 비용"을 다루지만 타깃이 다르다.
 
-반대로 항상 고트래픽이라 자연 워밍이 빠른 시스템에서는 체감 이득이 작을 수 있다. Warmup 대상 API가 자주 바뀌는 시스템도 유지 비용이 커질 수 있다. 외부 의존성까지 Warmup에 넣어야 하면 장애 전파 위험을 따로 관리해야 한다. 그래서 도입 전에 대상 경로와 실패 정책을 먼저 정하는 편이 안전하다.
+| 기법 | 줄이는 비용 | 작동 시점 |
+|------|-------------|-----------|
+| AppCDS | 클래스 파싱/검증 일부 | JVM 시작 시 |
+| Warmup | 요청 경로 초기화(서블릿/ORM/풀/JIT 초반) | 앱 Ready 직후 |
+
+즉, AppCDS는 "JVM 부팅 비용" 최적화에 가깝고,
+Warmup은 "첫 사용자 요청 비용" 최적화에 가깝다.
+
+---
+
+## 적용하면서 확인한 한계
+
+1. Warmup 대상 API가 계속 바뀌면 유지비가 커진다.
+2. 외부 API 의존 경로를 무분별하게 넣으면 Warmup 자체가 장애 전파 지점이 된다.
+3. 항상 고트래픽인 서비스는 자연 워밍이 빨라 체감 이득이 작을 수 있다.
+4. Warmup 성공률/소요시간 지표를 모니터링하지 않으면 효과가 유지되는지 판단하기 어렵다.
+
+그래서 운영에서는 아래를 고정했다.
+
+- 핵심 API 목록을 버전 관리
+- Warmup 성공/실패/소요시간 로그 표준화
+- 월 단위로 Warmup 대상 재검토
+
+---
+
+## 실무 체크리스트
+
+1. 첫 요청이 느린 API를 1개 먼저 고른다.
+2. 해당 경로가 실제 핫패스인지 확인한다.
+3. `ApplicationReadyEvent` + timeout + fail-open으로 Warmup 구현한다.
+4. Health Gate를 붙여 Warmup 전 트래픽 유입을 차단한다.
+5. Before/After를 같은 조건에서 반복 측정한다.
+6. 효과가 확인되면 API 범위를 단계적으로 확장한다.
 
 ---
 
 ## 정리
 
-이 작업의 본질은 "최적화 기능 추가"가 아니었다. 사용자 요청에서 발생하던 초기화 비용을 준비 단계로 이동한 것이 핵심이었다. Warmup은 만능 해법이 아니라, 조건이 맞을 때 효과가 큰 운영 전략에 가깝다. 도입 전에는 대상 API, Health Gate, 실패 정책을 같이 설계하는 것을 권한다.
+이번 개선은 "성능 튜닝 기교"보다 운영 설계에 가까웠다.
+Warmup은 비용을 제거하는 기술이 아니라 비용이 터지는 시점을 옮기는 기술이다.
 
-비슷한 상황을 운영 중이라면, 먼저 첫 요청 지연 API 1개만 골라서 실험해 보시는 것을 권한다. 측정 조건을 고정하고 Before/After를 같은 방식으로 기록하면 판단이 쉬워진다. 필요하시면 다음 글에서 체크리스트 형식으로 실험 절차를 이어서 정리하겠다.
+첫 사용자 요청이 초기화 비용을 부담하지 않게 만들고 싶다면,
+Warmup 로직 자체보다 Health Gate와 실패 정책부터 먼저 설계하는 편이 안전하다.
 
 ---
 
@@ -195,6 +273,7 @@ Warmup 실행 시간은 약 5.2초였다. Ready 총 시간은 131.6초에서 132
 
 - Spring Boot Application Events: https://docs.spring.io/spring-boot/reference/features/spring-application.html#features.spring-application.application-events-and-listeners
 - Spring Boot Actuator Endpoints: https://docs.spring.io/spring-boot/reference/actuator/endpoints.html
-- Spring Boot Graceful Shutdown & Availability: https://docs.spring.io/spring-boot/reference/web/graceful-shutdown.html
+- Spring Boot Availability & Probes: https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.kubernetes-probes
 - ALB Target Group Health Checks: https://docs.aws.amazon.com/elasticloadbalancing/latest/application/target-group-health-checks.html
-- JIT Compilation Overview: https://docs.oracle.com/en/java/javase/21/vm/java-hotspot-virtual-machine-performance-enhancements.html
+- HikariCP Configuration: https://github.com/brettwooldridge/HikariCP#configuration-knobs-baby
+- Java HotSpot VM Performance Enhancements: https://docs.oracle.com/en/java/javase/21/vm/java-hotspot-virtual-machine-performance-enhancements.html

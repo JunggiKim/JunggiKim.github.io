@@ -158,3 +158,57 @@
     });
   });
 </script>
+
+<!-- Mermaid Diagram Renderer -->
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const mermaidCodeBlocks = document.querySelectorAll('pre code.language-mermaid');
+    if (!mermaidCodeBlocks.length) return;
+
+    function renderMermaid() {
+      if (!window.mermaid) return;
+
+      mermaidCodeBlocks.forEach(function(codeBlock, index) {
+        const pre = codeBlock.parentElement;
+        if (!pre) return;
+
+        const source = codeBlock.textContent || '';
+        const wrapper = document.createElement('div');
+        wrapper.className = 'mermaid-wrapper';
+
+        const diagram = document.createElement('div');
+        diagram.className = 'mermaid';
+        diagram.id = 'mermaid-diagram-' + index;
+        diagram.textContent = source;
+
+        wrapper.appendChild(diagram);
+        pre.replaceWith(wrapper);
+      });
+
+      const currentTheme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default';
+      window.mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: 'loose',
+        theme: currentTheme,
+      });
+
+      window.mermaid.run({ querySelector: '.mermaid' }).catch(function(error) {
+        console.error('[Mermaid] render failed:', error);
+      });
+    }
+
+    if (window.mermaid) {
+      renderMermaid();
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js';
+    script.async = true;
+    script.onload = renderMermaid;
+    script.onerror = function() {
+      console.warn('[Mermaid] library load failed; keep code block fallback.');
+    };
+    document.head.appendChild(script);
+  });
+</script>
