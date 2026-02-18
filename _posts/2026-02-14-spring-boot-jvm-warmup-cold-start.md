@@ -38,6 +38,8 @@ Spring Boot Ready 이후 31분 대기
 | Warmup 실행 시점 | `ApplicationReadyEvent` 직후 |
 | 트래픽 유입 제어 | Warmup 완료 전 `/actuator/health` = 503 |
 
+이 글의 내부 수치는 작성자 공개 승인 후 공유한 운영 계측값이다. 절대값보다 변화 추세와 적용 조건 확인에 초점을 맞춰 해석하는 편이 안전하다.
+
 ---
 
 ## 동작 방식: 왜 첫 요청이 느려지는가
@@ -186,3 +188,13 @@ Warmup 실행 시간은 약 5.2초였다. Ready 총 시간은 131.6초에서 132
 이 작업의 본질은 "최적화 기능 추가"가 아니었다. 사용자 요청에서 발생하던 초기화 비용을 준비 단계로 이동한 것이 핵심이었다. Warmup은 만능 해법이 아니라, 조건이 맞을 때 효과가 큰 운영 전략에 가깝다. 도입 전에는 대상 API, Health Gate, 실패 정책을 같이 설계하는 것을 권한다.
 
 비슷한 상황을 운영 중이라면, 먼저 첫 요청 지연 API 1개만 골라서 실험해 보시는 것을 권한다. 측정 조건을 고정하고 Before/After를 같은 방식으로 기록하면 판단이 쉬워진다. 필요하시면 다음 글에서 체크리스트 형식으로 실험 절차를 이어서 정리하겠다.
+
+---
+
+## 참고 자료
+
+- Spring Boot Application Events: https://docs.spring.io/spring-boot/reference/features/spring-application.html#features.spring-application.application-events-and-listeners
+- Spring Boot Actuator Endpoints: https://docs.spring.io/spring-boot/reference/actuator/endpoints.html
+- Spring Boot Graceful Shutdown & Availability: https://docs.spring.io/spring-boot/reference/web/graceful-shutdown.html
+- ALB Target Group Health Checks: https://docs.aws.amazon.com/elasticloadbalancing/latest/application/target-group-health-checks.html
+- JIT Compilation Overview: https://docs.oracle.com/en/java/javase/21/vm/java-hotspot-virtual-machine-performance-enhancements.html

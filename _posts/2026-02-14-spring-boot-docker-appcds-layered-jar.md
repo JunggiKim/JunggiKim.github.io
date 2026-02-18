@@ -16,8 +16,8 @@ toc_sticky: true
 코드 변경은 작았는데 Docker push/pull 전송량은 매번 크게 나왔다. 원인은 fat JAR 단일 복사 구조였다. 파일 한 바이트가 바뀌어도 JAR 전체가 새 레이어로 인식됐다. 이 구조에서는 코드 변경 배포가 반복될수록 네트워크 낭비가 커진다.
 
 ```dockerfile
-RUN cp /workspace-src/apis/backoffice/build/libs/*.jar ./backoffice.jar
-ENTRYPOINT ["sh", "-c", "exec java -server -jar backoffice.jar"]
+RUN cp build/libs/*.jar ./app.jar
+ENTRYPOINT ["sh", "-c", "exec java -server -jar app.jar"]
 ```
 
 이 글은 두 가지를 답한다. 첫째, Layered JAR가 전송량을 줄이는 동작 원리는 무엇인가. 둘째, AppCDS가 실제 운영 조건에서 얼마나 유효한가. 결론은 "둘 다 쓰자"가 아니라 "조건별로 분리 판단하자"에 가깝다.
@@ -36,6 +36,8 @@ ENTRYPOINT ["sh", "-c", "exec java -server -jar backoffice.jar"]
 | Optimized | Layered JAR + AppCDS trainer |
 | 관측 지표 | 이미지 크기, 코드 변경 전송량, 기동 시간 |
 | 환경 분기 | Dev(no agent), Staging/Prod(OTEL javaagent) |
+
+이 글의 내부 수치는 작성자 공개 승인 후 공유한 운영 계측값이다. 따라서 절대값 단정이 아니라 환경별 상대 비교로 해석하는 편이 맞다.
 
 ---
 
@@ -56,8 +58,7 @@ Layered JAR는 fat JAR 내부를 변경 빈도 기준으로 나눈다. 의존 �
 FROM eclipse-temurin:21-jre-jammy AS extractor
 WORKDIR /extract
 
-RUN --mount=from=builder,source=/workspace,target=/workspace-src \
-    cp /workspace-src/apis/app/build/libs/*.jar app.jar
+COPY app.jar app.jar
 
 RUN java -Djarmode=tools -jar app.jar extract --layers --launcher
 
@@ -99,7 +100,15 @@ RUN java \
     -Dspring.data.redis.host=localhost \
     -Dspring.autoconfigure.exclude=\
 org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,\
-...10개 AutoConfiguration exclude... \
+org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration,\
+org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration,\
+org.ff4j.spring.boot.autoconfigure.common.FF4JConfiguration,\
+org.ff4j.spring.boot.autoconfigure.common.FF4JOpenApiConfiguration,\
+org.ff4j.spring.boot.autoconfigure.webmvc.FF4JWebConsoleConfiguration,\
+com.deartail.notification.config.NotificationAutoConfiguration,\
+com.deartail.payment.config.PaymentAutoConfiguration,\
+com.deartail.cache.config.CacheAutoConfiguration,\
+com.deartail.storage.config.StorageAutoConfiguration \
     org.springframework.boot.loader.launch.JarLauncher || true
 ```
 
@@ -174,3 +183,14 @@ Docker Desktop의 기동 시간은 아래처럼 나왔다. 여기서는 AppCDS �
 이 케이스에서 즉시 재현된 이득은 Layered JAR의 코드 변경 전송량 절감이었다. AppCDS는 적용 가치가 있지만, 환경 조건이 맞을 때 효과를 기대하는 접근이 안전했다. 그래서 일괄 도입보다 문제 우선순위와 환경 검증을 함께 두는 편이 현실적이었다. 다음 단계는 ECS Linux 환경에서 같은 이미지로 AppCDS를 재측정하는 것이다.
 
 같은 고민이 있으시면, 먼저 코드 변경 배포 전송량부터 계측해 보시는 것을 권한다. 이 숫자를 보면 Layered JAR 도입 우선순위를 바로 정할 수 있다. AppCDS는 그다음에 환경 조건을 맞춰 검증하는 순서가 안전했다.
+
+---
+
+## 참고 자료
+
+- Spring Boot Efficient Container Images: https://docs.spring.io/spring-boot/reference/packaging/container-images/efficient-images.html
+- Spring Boot Layered JAR: https://docs.spring.io/spring-boot/docs/current/maven-plugin/reference/htmlsingle/#repackage-layers
+- Java Class Data Sharing: https://docs.oracle.com/en/java/javase/21/vm/class-data-sharing.html
+- JEP 310 (Application Class-Data Sharing): https://openjdk.org/jeps/310
+- Docker Build Cache: https://docs.docker.com/build/cache/
+- OpenTelemetry Java Agent: https://opentelemetry.io/docs/zero-code/java/agent/
