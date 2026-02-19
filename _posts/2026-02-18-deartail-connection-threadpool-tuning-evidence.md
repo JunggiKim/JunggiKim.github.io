@@ -1,5 +1,5 @@
 ---
-title: "우리 서비스에 맞는 커넥션풀/스레드풀 수를 구해서 설정하기: Hikari 반영 경로 검증부터 단계별 튜닝까지"
+title: "우리 서비스에 맞는 커넥션풀/스레드풀 수를 구해서 설정하기: 계산 기반 단계별 튜닝"
 date: 2026-02-18 14:15:00 +0900
 categories: [tech]
 tags: [spring-boot, hikari, tomcat, thread-pool, connection-pool, kotlin, tuning]
@@ -7,86 +7,27 @@ toc: true
 toc_sticky: true
 ---
 
-> 이번 작업의 핵심은 숫자를 크게 넣는 게 아니라, 설정이 런타임에 정확히 적용되는지 먼저 고정한 뒤 우리 서비스 트래픽에 맞춰 계산하는 것이었다.
+> 이번 작업의 핵심은 숫자를 크게 넣는 게 아니라, 우리 서비스 트래픽에서 필요한 동시 연결 수를 계산하고 단계적으로 확장하는 것이었다.
 
 ---
 
-## 문제를 다시 봤다
+## 이전 설정과 문제
 
 피크 시간대 안정성을 위해 App/Backoffice의 커넥션풀과 Tomcat 스레드 수를 조정했다.
-당시 Master 커넥션풀은 `maximumPoolSize = 15`로 설정되어 있었고, `minimumIdle`과 `leakDetectionThreshold`는 기본값에 의존하고 있었다.
-피크 시간대에 active 연결이 15개 상한에 근접하면서 connection wait가 간헐적으로 발생했다.
 
-그런데 값을 올렸는데도 일부 구간 체감이 약했다.
+조정 전 설정은 아래와 같았다.
 
-이때 질문은 둘이었다.
+| 항목 | App Master | App Slave | Backoffice |
+|------|-----------|-----------|------------|
+| `maximumPoolSize` | 15 | 40 | 10 |
+| `minimumIdle` | 기본값 의존 | 기본값 의존 | 2 |
+| `leakDetectionThreshold` | 미설정 | 미설정 | 미설정 |
+| Tomcat `maxThreads` | 기본값 의존 | — | 기본값 의존 |
 
-1. 수치가 부족한가?
-2. 수치가 적용되지 않은 건가?
+문제는 두 가지였다.
 
-실제 원인은 2번이 먼저였다.
-
----
-
-## 첫 원인: "튜닝값이 적용되는 경로"가 불안정했다
-
-문제는 Hikari 설정 변환 코드의 대입 경로였다.
-의도는 `HikariProperties` 값을 `HikariConfig`로 정확히 복사하는 것이었지만,
-리시버가 혼동될 수 있는 구조에서는 일부 필드 반영 누락 위험이 생긴다.
-
-실제 영향 후보는 아래 두 필드였다.
-
-- `minimumIdle`
-- `leakDetectionThreshold`
-
-이 두 값이 흔들리면, 풀 크기(`maximumPoolSize`)만 올려도 체감 개선이 일관되지 않다.
-
----
-
-## 1차 조치: 반영 경로를 명시 대입으로 고정
-
-Kotlin의 `apply { }` 블록 안에서는 `this`가 수신 객체(`HikariConfig`)로 바뀐다. 외부 스코프의 프로퍼티와 이름이 겹치면 대입 대상이 모호해질 수 있다.
-
-```kotlin
-// Before: 리시버 혼동 가능 구조
-return HikariConfig().apply {
-    maximumPoolSize = hikari.maximumPoolSize    // this.hikari? 외부 클래스.hikari?
-    minimumIdle = hikari.minimumIdle
-    leakDetectionThreshold = hikari.leakDetectionThreshold
-}
-```
-
-`apply` 블록 안에서 `hikari`가 외부 클래스의 프로퍼티인지, `HikariConfig` 내부에서 해석될 수 있는 이름인지 컴파일러가 혼동할 여지가 있었다.
-리시버 추론에 기대지 않고, 로컬 변수에서 `HikariConfig`로 직접 대입하도록 수정했다.
-
-```kotlin
-// After: 로컬 변수로 고정
-val h = this.hikari
-return HikariConfig().apply {
-    maximumPoolSize = h.maximumPoolSize
-    minimumIdle = h.minimumIdle
-    leakDetectionThreshold = h.leakDetectionThreshold
-}
-```
-
-같은 방식으로 Master/Slave 모두를 고정했다.
-핵심은 "설정이 선언돼 있다"가 아니라 "런타임 객체에 실제로 들어갔다"를 보장하는 것이다.
-
----
-
-## 1차 검증: 변환 테스트로 회귀를 막았다
-
-수치 튜닝 전에 설정 반영을 테스트로 먼저 고정했다.
-
-| 검증 항목 | 기대값 |
-|-----------|--------|
-| `minimumIdle` 반영 | 입력값과 동일 |
-| `maximumPoolSize` 반영 | 입력값과 동일 |
-| `leakDetectionThreshold` 반영 | 입력값과 동일 |
-| Slave `readOnly` | 항상 `true` |
-
-이 검증이 없으면, 이후 수치 변경 결과를 해석할 수 없다.
-개선이 안 나와도 값 부족인지 반영 누락인지 구분이 불가능하기 때문이다.
+1. **풀 크기 부족**: 피크 시간대에 App Master의 active 연결이 15개 상한에 근접하면서 connection wait가 간헐적으로 발생했다.
+2. **누수 감지 부재**: `leakDetectionThreshold`가 없어서 커넥션 누수가 발생해도 풀 고갈 시점까지 감지할 수 없었다.
 
 ---
 
@@ -102,7 +43,7 @@ return HikariConfig().apply {
 
 ---
 
-## 2차 조치: 우리 서비스 기준으로 커넥션 수를 계산했다
+## 우리 서비스 기준으로 커넥션 수를 계산했다
 
 이번 튜닝에서 먼저 정한 원칙은 다음이다.
 
@@ -183,22 +124,22 @@ Tomcat `maxThreads`를 독립 숫자로 보지 않았다.
 
 ---
 
-## 왜 이 순서를 강제했나
+## 왜 단계적으로 올렸나
 
 "값 먼저 크게 올리기"는 빠르지만 실패 원인을 흐린다.
 이번에는 순서를 고정해 해석 가능성을 확보했다.
 
-1. 반영 경로 수정
-2. 변환 테스트 추가
+1. 이전 설정 문제 진단
+2. DB 한도 기준 커넥션 계산
 3. 단계별 증설
-4. 운영 지표 재검증
+4. 운영 지표 검증
 
-이 순서를 지키면 실패 시 원인 축이 명확하다.
+이 순서를 지키면 개선이 안 나왔을 때 원인 축이 명확하다.
 
-- 반영 실패인가?
 - 풀 부족인가?
 - SQL/인덱스 병목인가?
 - 외부 I/O 병목인가?
+- 스레드풀 불균형인가?
 
 ---
 
@@ -221,14 +162,14 @@ Tomcat `maxThreads`를 독립 숫자로 보지 않았다.
 
 | 지표 | 튜닝 전 | 튜닝 후 | 변화 |
 |------|---------|---------|------|
-| API p95 | — | — | — |
-| API p99 | — | — | — |
-| Hikari connection wait (평균) | — | — | — |
-| Hikari connection wait (피크) | — | — | — |
-| 풀 사용률 (active/max) | ~14/15 | ~18/25 | 여유 확보 |
-| Tomcat busy threads (피크) | — | — | — |
+| ALB Target Response p95 | — | 76~111ms | — |
+| ALB Target Response p99 | — | 131~292ms | — |
+| App Master 풀 사용률 (active/max) | ~14/15 (93%) | ~18/25 (72%) | 여유 확보 |
+| RDS 평균 커넥션 수 (Master) | — | ~37 | 안정 |
+| RDS 피크 커넥션 수 (Master) | — | ~45 | 상한 내 |
+| ECS 메모리 사용률 (App) | — | 22~23% | 안정 |
 
-> 위 수치는 운영 환경 계측값이 확보되는 대로 업데이트할 예정이다.
+튜닝 전 ALB 응답시간은 별도로 기록하지 못했다. 다만 풀 사용률이 93%에서 72%로 내려갔다는 건 connection wait 리스크가 구조적으로 줄었다는 뜻이다. 풀이 상한에 도달하면 대기 시간이 지수적으로 증가하는데, 여유율 확보로 이 구간을 벗어났다.
 
 ---
 
@@ -244,10 +185,10 @@ Tomcat `maxThreads`를 독립 숫자로 보지 않았다.
 
 ## 운영 체크리스트
 
-1. 설정 반영 테스트가 없으면 수치 튜닝을 시작하지 않는다.
-2. `maximumPoolSize`, `minimumIdle`, `leakDetectionThreshold`를 세트로 다룬다.
-3. DB 한도 -> 서비스 예산 -> 인스턴스별 풀 크기 순서로 계산한다.
-4. Tomcat 스레드는 커넥션풀과 함께 조정한다.
+1. `maximumPoolSize`, `minimumIdle`, `leakDetectionThreshold`를 세트로 다룬다.
+2. DB 한도 → 서비스 예산 → 인스턴스별 풀 크기 순서로 계산한다.
+3. Tomcat 스레드는 커넥션풀과 함께 조정한다.
+4. 한 번에 크게 올리지 않고 단계별로 증설한다.
 5. 조정 후 p95/p99 + connection wait + DB wait를 같이 본다.
 6. 개선이 약하면 SQL/인덱스/외부 I/O 축으로 원인 분석을 전환한다.
 
@@ -256,11 +197,13 @@ Tomcat `maxThreads`를 독립 숫자로 보지 않았다.
 ## 정리
 
 이번 튜닝의 본질은 숫자 놀이가 아니었다.
-"우리 서비스 트래픽에서 필요한 동시 연결 수"를 계산하고,
-그 값이 런타임에 실제 반영된다는 증거를 먼저 고정한 뒤 단계적으로 확장한 작업이었다.
+"우리 서비스 트래픽에서 필요한 동시 연결 수"를 계산하고, 그 계산에 근거해 단계적으로 확장한 작업이었다.
 
-설정 반영 경로가 불안정한 상태에서는 어떤 고급 튜닝도 재현성이 떨어진다.
-먼저 반영 경로를 테스트로 잠그고, 그 다음에 계산 기반으로 수치를 올리는 접근이 운영에서는 가장 안전했다.
+App Master의 풀 사용률이 93%에서 72%로 내려간 것은 단순히 숫자를 올린 결과가 아니다.
+피크 RPS × DB 점유 시간으로 필요한 동시성을 계산하고, 커넥션풀과 Tomcat 스레드를 함께 맞춘 결과다.
+
+계산 없이 직관으로 올리면 과잉 설정과 부족 설정이 섞인다.
+계산부터 하고, 단계적으로 올리고, 지표를 세트로 보는 것이 운영에서는 가장 안전했다.
 
 ---
 

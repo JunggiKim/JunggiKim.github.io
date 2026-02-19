@@ -86,7 +86,7 @@ AppCDS는 클래스 로딩 결과를 아카이브로 저장하고 재사용한�
 
 아래 trainer 예시는 빌드 단계에서 `.jsa`를 생성하는 방식이다. 이 단계는 런타임 최적화 후보를 미리 준비하는 역할을 한다. 실제 효과는 런타임 classpath 조건에서 다시 확인해야 한다.
 
-trainer Dockerfile에서 DataSource, Redis, Flyway 등 여러 AutoConfiguration을 exclude하는 이유가 있다. trainer는 Docker 빌드 단계에서 실행되기 때문에 DB, Redis, 외부 API에 연결할 수 없다. 이 AutoConfiguration들이 활성화되면 연결을 시도하고, 연결 실패로 trainer 자체가 실패한다.
+trainer Dockerfile에서 DataSource, Flyway 등 여러 AutoConfiguration을 exclude하는 이유가 있다. trainer는 Docker 빌드 단계에서 실행되기 때문에 DB, 외부 API에 연결할 수 없다. 이 AutoConfiguration들이 활성화되면 연결을 시도하고, 연결 실패로 trainer 자체가 실패한다. 핵심 3개(DataSource, JPA, Flyway)만 명시하고 나머지는 프로젝트 의존성에 맞춰 추가하면 된다.
 
 `-Dspring.context.exit=onRefresh`는 Spring 컨텍스트 초기화(Bean 생성) 직전에 JVM을 종료시킨다. 이 조합으로 "클래스 로딩 결과만 수집하고, 외부 의존성 연결 없이 종료"하는 것이 trainer의 목적이다.
 
@@ -104,20 +104,20 @@ RUN java \
     -Dspring.context.exit=onRefresh \
     -Dspring.main.lazy-initialization=true \
     -Dspring.main.web-application-type=none \
-    -Dserver.port=0 \
-    -Dspring.data.redis.host=localhost \
     -Dspring.autoconfigure.exclude=\
 org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,\
 org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration,\
-org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration,\
-org.ff4j.spring.boot.autoconfigure.common.FF4JConfiguration,\
-org.ff4j.spring.boot.autoconfigure.common.FF4JOpenApiConfiguration,\
-org.ff4j.spring.boot.autoconfigure.webmvc.FF4JWebConsoleConfiguration,\
-com.deartail.notification.config.NotificationAutoConfiguration,\
-com.deartail.payment.config.PaymentAutoConfiguration,\
-com.deartail.cache.config.CacheAutoConfiguration,\
-com.deartail.storage.config.StorageAutoConfiguration \
+org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration \
     org.springframework.boot.loader.launch.JarLauncher || true
+```
+
+실제 프로젝트에서는 위 3개 외에 FF4J, Notification, Payment, Cache, Storage 등 프로젝트가 의존하는 외부 연결 AutoConfiguration을 추가로 exclude해야 한다. 핵심은 "DB/ORM/마이그레이션"처럼 외부 연결이 필요한 설정을 빌드 단계에서 비활성화하는 것이다.
+
+```text
+exclude 대상 선정 기준:
+- DB 연결 필요 → DataSourceAutoConfiguration, HibernateJpaAutoConfiguration, FlywayAutoConfiguration
+- 외부 API 연결 필요 → 결제, 알림, 스토리지 등 프로젝트별 AutoConfiguration
+- 캐시 서버 연결 필요 → Redis/Valkey 관련 AutoConfiguration
 ```
 
 런타임에는 `-Xshare:auto -XX:SharedArchiveFile=/app/app.jsa`를 사용했다. `-Xshare:auto`를 선택한 이유는 캐시 불일치 시 안전하게 fallback하기 위해서다. 이 선택은 성능보다 안정성 우선 정책에 맞췄다. 운영에서는 이 보수적 설정이 더 다루기 쉬웠다.

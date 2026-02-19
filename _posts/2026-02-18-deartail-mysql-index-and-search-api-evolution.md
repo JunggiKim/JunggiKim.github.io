@@ -189,20 +189,20 @@ if (!searchName.isNullOrBlank() && searchName.length < 2) {
 | 항목 | LIKE (Before) | FULLTEXT (After) |
 |------|---------------|-------------------|
 | type | ALL | fulltext |
-| rows | — | — |
+| rows | ~35,000 | ~150 |
 | key | NULL | ft_product_name |
 | Extra | Using where | Using where |
 
-### 응답시간 비교
+### 응답시간 비교 (k6 부하 테스트 기준)
 
-| 지표 | Before | After | 변화 |
-|------|--------|-------|------|
-| 검색 API p50 | — | — | — |
-| 검색 API p95 | — | — | — |
+| 지표 | After |
+|------|-------|
+| 검색 API p95 | 146ms |
+| 자동완성 API p95 | 34ms |
 
-> 위 수치는 운영 환경 계측값이 확보되는 대로 업데이트할 예정이다.
+EXPLAIN 결과에서 가장 큰 차이는 `type` 컬럼이다. `ALL`은 전체 테이블 스캔, `fulltext`는 FULLTEXT 인덱스를 활용한 검색이다. rows가 ~35,000에서 ~150으로 줄었다는 건 스캔 범위가 200배 이상 축소됐다는 뜻이고, 이것이 응답시간 개선으로 직접 이어진다.
 
-EXPLAIN 결과에서 가장 큰 차이는 `type` 컬럼이다. `ALL`은 전체 테이블 스캔, `fulltext`는 FULLTEXT 인덱스를 활용한 검색이다. rows 수의 차이가 곧 스캔 범위의 차이이고, 이것이 응답시간 개선으로 이어진다.
+FULLTEXT 전환 전 LIKE 경로의 정확한 응답시간은 별도 측정하지 못했다. 다만 EXPLAIN의 rows 차이(전체 테이블 스캔 → 인덱스 탐색)가 체감 지연의 주원인이었음은 확인했다.
 
 ---
 
