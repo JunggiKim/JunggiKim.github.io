@@ -14,7 +14,8 @@ toc_sticky: true
 ## 문제를 다시 정의했다
 
 기존 검색 경로의 중심은 `LIKE '%keyword%'`였다.
-데이터가 작을 때는 큰 문제가 없었지만, 데이터가 커질수록 선행 와일드카드가 인덱스 활용을 막았다.
+상품 테이블(product)은 수만 건, 태그(tag)는 수천 건 규모였다.
+데이터가 이 수준일 때부터 LIKE 검색의 지연이 체감되기 시작했고, 선행 와일드카드가 인덱스 활용을 막으면서 스캔 범위가 커졌다.
 
 검색은 단일 쿼리로 끝나지 않는다.
 상품명 검색뿐 아니라 태그, 브랜드, 카테고리, 인기 키워드 집계가 함께 움직인다.
@@ -39,6 +40,22 @@ toc_sticky: true
 - 기간 필터 + `GROUP BY keyword` 집계
 
 즉, 병목은 "상품명 검색" 하나가 아니라 검색 주변 경로 전체에서 발생했다.
+
+---
+
+## 대안 비교: Elasticsearch vs MySQL FULLTEXT
+
+검색 개선에서 첫 번째 질문은 "전문 검색 엔진을 따로 도입할 것인가"였다.
+
+| 기준 | MySQL FULLTEXT | Elasticsearch |
+|------|----------------|---------------|
+| 운영 복잡도 | 기존 MySQL 재사용 | 별도 클러스터 운영 필요 |
+| 데이터 동기화 | 불필요 (같은 DB) | CDC 또는 배치 동기화 필요 |
+| 검색 품질 | ngram 기반, 부분 매칭 지원 | 형태소 분석, 유사어, 가중치 |
+| 현재 규모 적합성 | 수만 건 수준에서 충분 | 대규모/고급 검색에 유리 |
+| 비용 | 추가 인프라 없음 | 인스턴스 + 운영 비용 |
+
+현재 규모에서는 MySQL FULLTEXT로 충분하다고 판단했다. 별도 클러스터를 운영하면 동기화 파이프라인, 장애 대응, 모니터링 포인트가 모두 늘어난다. 데이터가 수십만 건을 넘기거나 형태소 분석 기반 검색이 필요해지면 그때 Elasticsearch를 검토할 계획이다.
 
 ---
 
@@ -67,8 +84,11 @@ ALTER TABLE category ADD FULLTEXT INDEX ft_category_name (category_name) WITH PA
 ### 왜 ngram을 썼나
 
 한국어 검색에서는 토큰 경계가 영어처럼 명확하지 않다.
-ngram parser를 쓰면 짧은 단위로 분해된 토큰 기반 검색이 가능해져,
-일반 parser 대비 한국어 부분 검색 대응이 안정적이다.
+ngram parser는 텍스트를 고정 길이 단위로 잘라서 토큰을 만든다. `ngram_token_size=2`일 때 "한국어"는 ["한국", "국어"]로 분해된다. 이 토큰들이 inverted index에 저장된다.
+
+inverted index는 토큰 → 해당 토큰을 포함하는 행 목록의 매핑이다. "한국"이라고 검색하면 inverted index에서 "한국" 토큰을 가진 행 ID들을 바로 찾는다. B-Tree의 `LIKE '%한국%'`처럼 전체 행을 스캔할 필요가 없다.
+
+이 글에서는 `IN BOOLEAN MODE`를 사용했다. BOOLEAN MODE는 `+`(필수), `-`(제외), `*`(와일드카드) 같은 연산자를 지원한다. `NATURAL LANGUAGE MODE`는 관련도 점수 기반으로 결과를 정렬하는 방식이다. 정확한 필터링이 우선인 검색 경로에서는 BOOLEAN MODE가 제어하기 쉬웠다.
 
 ---
 
@@ -87,6 +107,10 @@ ALTER TABLE search_history ADD INDEX idx_created_deleted_keyword (created_at, de
 
 - `product_tag`: `tag_id + deleted_at` 필터 후 `product_id`를 바로 반환하도록 커버링 형태 구성
 - `search_history`: 기간 필터 + 삭제 필터 + `GROUP BY keyword` 경로에 맞춰 정렬
+
+커버링 인덱스란, 쿼리가 필요한 모든 컬럼이 인덱스에 포함되어 있어서 테이블 본체(클러스터드 인덱스)로 돌아갈 필요 없이 인덱스만으로 응답하는 것이다.
+
+`idx_tag_deleted_product (tag_id, deleted_at, product_id)`를 예로 들면, WHERE에서 `tag_id`와 `deleted_at`으로 필터하고 SELECT에서 `product_id`를 반환한다. 세 컬럼 모두 인덱스에 있으므로 테이블 본체에 대한 랜덤 I/O가 발생하지 않는다. 서브쿼리에서 이 인덱스만으로 결과를 반환할 수 있기 때문에 조인/서브쿼리 비용이 줄어든다.
 
 이 단계가 빠지면 FULLTEXT 도입 후에도 전체 검색 응답 개선 폭이 제한된다.
 
@@ -109,8 +133,9 @@ AND REPLACE(p.product_name, ' ', '') LIKE CONCAT('%', ?, '%')
 - `MATCH AGAINST`: 인덱스를 활용한 빠른 후보 탐색
 - `REPLACE ... LIKE`: 공백 차이/표기 변형 보완
 
-속도와 정확도 사이에서 한쪽만 고르면 부작용이 커진다.
-이번 구성은 후보 집합은 FULLTEXT로 줄이고, 최종 필터 정확도는 LIKE 보완으로 유지하는 전략이다.
+FULLTEXT만 쓰면 공백 차이로 누락이 발생한다. "아이폰 케이스"와 "아이폰케이스"는 ngram 토큰이 달라지기 때문에 한쪽만 검색되는 경우가 생긴다. LIKE만 쓰면 `LIKE '%keyword%'`가 인덱스를 활용하지 못해 전체 테이블 스캔으로 돌아간다.
+
+이번 구성은 후보 집합을 FULLTEXT로 줄인 뒤 LIKE로 정확 필터링하는 전략이다. FULLTEXT가 전체 테이블에서 후보를 수십~수백 건으로 줄이면, 그 안에서 `REPLACE(..., ' ', '')`를 적용한 LIKE 필터 비용은 무시할 수 있는 수준이 된다.
 
 ---
 
@@ -154,6 +179,30 @@ if (!searchName.isNullOrBlank() && searchName.length < 2) {
 | 자동완성 경로 | 브랜드/상품 혼합 결과 검증 |
 
 성능 수치는 동일 기능이 보장된 뒤에 해석해야 의미가 있다.
+
+---
+
+## 성능 결과
+
+### EXPLAIN 비교
+
+| 항목 | LIKE (Before) | FULLTEXT (After) |
+|------|---------------|-------------------|
+| type | ALL | fulltext |
+| rows | — | — |
+| key | NULL | ft_product_name |
+| Extra | Using where | Using where |
+
+### 응답시간 비교
+
+| 지표 | Before | After | 변화 |
+|------|--------|-------|------|
+| 검색 API p50 | — | — | — |
+| 검색 API p95 | — | — | — |
+
+> 위 수치는 운영 환경 계측값이 확보되는 대로 업데이트할 예정이다.
+
+EXPLAIN 결과에서 가장 큰 차이는 `type` 컬럼이다. `ALL`은 전체 테이블 스캔, `fulltext`는 FULLTEXT 인덱스를 활용한 검색이다. rows 수의 차이가 곧 스캔 범위의 차이이고, 이것이 응답시간 개선으로 이어진다.
 
 ---
 

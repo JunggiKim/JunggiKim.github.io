@@ -14,6 +14,9 @@ toc_sticky: true
 ## 문제를 다시 봤다
 
 피크 시간대 안정성을 위해 App/Backoffice의 커넥션풀과 Tomcat 스레드 수를 조정했다.
+당시 Master 커넥션풀은 `maximumPoolSize = 15`로 설정되어 있었고, `minimumIdle`과 `leakDetectionThreshold`는 기본값에 의존하고 있었다.
+피크 시간대에 active 연결이 15개 상한에 근접하면서 connection wait가 간헐적으로 발생했다.
+
 그런데 값을 올렸는데도 일부 구간 체감이 약했다.
 
 이때 질문은 둘이었다.
@@ -42,9 +45,22 @@ toc_sticky: true
 
 ## 1차 조치: 반영 경로를 명시 대입으로 고정
 
+Kotlin의 `apply { }` 블록 안에서는 `this`가 수신 객체(`HikariConfig`)로 바뀐다. 외부 스코프의 프로퍼티와 이름이 겹치면 대입 대상이 모호해질 수 있다.
+
+```kotlin
+// Before: 리시버 혼동 가능 구조
+return HikariConfig().apply {
+    maximumPoolSize = hikari.maximumPoolSize    // this.hikari? 외부 클래스.hikari?
+    minimumIdle = hikari.minimumIdle
+    leakDetectionThreshold = hikari.leakDetectionThreshold
+}
+```
+
+`apply` 블록 안에서 `hikari`가 외부 클래스의 프로퍼티인지, `HikariConfig` 내부에서 해석될 수 있는 이름인지 컴파일러가 혼동할 여지가 있었다.
 리시버 추론에 기대지 않고, 로컬 변수에서 `HikariConfig`로 직접 대입하도록 수정했다.
 
 ```kotlin
+// After: 로컬 변수로 고정
 val h = this.hikari
 return HikariConfig().apply {
     maximumPoolSize = h.maximumPoolSize
@@ -74,6 +90,18 @@ return HikariConfig().apply {
 
 ---
 
+## HikariCP 풀 관리는 어떻게 동작하는가
+
+커넥션풀 튜닝에 쓰인 세 설정이 내부에서 어떤 역할을 하는지 짚고 넘어간다.
+
+**커넥션 생명주기.** 애플리케이션이 `getConnection()`을 호출하면 풀에서 idle 상태의 커넥션을 하나 꺼내 active로 전환한다. 비즈니스 로직이 끝나고 `close()`가 호출되면 커넥션은 실제로 닫히지 않고 idle 상태로 풀에 반환된다. 이 사이클이 풀 관리의 기본 단위다.
+
+**minimumIdle.** idle 커넥션을 최소 N개 유지하라는 설정이다. 이 값이 `maximumPoolSize`와 같으면 항상 최대 커넥션을 유지하는 고정 풀이 된다. 다르면 트래픽이 줄 때 idle 커넥션을 줄여 DB 리소스를 절약한다. 너무 낮게 설정하면 트래픽 스파이크 때 커넥션을 새로 생성하느라 지연이 생긴다.
+
+**leakDetectionThreshold.** `getConnection()` 후 설정 시간(ms) 내에 `close()`가 호출되지 않으면 경고 로그를 남긴다. 커넥션 누수(반환되지 않은 커넥션)를 조기에 발견하는 장치다. 이 설정이 없으면 누수가 풀 고갈로 이어질 때까지 알 수 없다.
+
+---
+
 ## 2차 조치: 우리 서비스 기준으로 커넥션 수를 계산했다
 
 이번 튜닝에서 먼저 정한 원칙은 다음이다.
@@ -98,12 +126,12 @@ return HikariConfig().apply {
 ### App API 산정 예시
 
 - Master 경로(쓰기 중심):
-  - 피크 RPS x DB 점유 시간 추정 동시성 ≈ 16
-  - 목표 사용률 65% 적용 -> `16 / 0.65 ≈ 24.6`
+  - 피크 RPS × 요청당 평균 DB 점유 시간 → 추정 동시성 ≈ 16
+  - 목표 사용률 65% 적용 → `16 / 0.65 ≈ 24.6`
   - 최종 `maximumPoolSize = 25`
 - Slave 경로(읽기 중심):
-  - 추정 동시성 ≈ 26
-  - 목표 사용률 65% 적용 -> `26 / 0.65 = 40`
+  - 피크 RPS × 요청당 평균 DB 점유 시간 → 추정 동시성 ≈ 26
+  - 목표 사용률 65% 적용 → `26 / 0.65 = 40`
   - 최종 `maximumPoolSize = 40`
 
 이 계산으로 "왜 25/40인가"를 설명 가능하게 만들었다.
@@ -124,6 +152,8 @@ Backoffice는 피크 트래픽과 동시성 패턴이 App보다 낮아 2단계�
 
 Tomcat `maxThreads`를 독립 숫자로 보지 않았다.
 요청 처리 스레드가 늘어나도 DB 커넥션이 받쳐주지 않으면 connection wait만 늘어난다.
+
+그 이유는 구조에 있다. 요청이 들어오면 Tomcat은 스레드풀에서 스레드 하나를 할당한다. 해당 스레드가 DB 쿼리를 실행하려면 HikariCP 풀에서 커넥션을 `getConnection()`으로 가져와야 한다. `maxThreads=200`인데 `maximumPoolSize=15`이면, 동시에 DB 작업을 수행할 수 있는 스레드는 최대 15개다. 나머지 185개는 커넥션을 받을 때까지 `connectionTimeout`(기본 30초) 동안 대기하거나, timeout이 나면 예외가 터진다. 그래서 `maxThreads`를 올리기 전에 `maximumPoolSize`를 먼저 확보해야 한다.
 
 이번 조정은 다음 원칙으로 진행했다.
 
@@ -186,6 +216,19 @@ Tomcat `maxThreads`를 독립 숫자로 보지 않았다.
 
 이 중 하나만 보면 오판이 쉽다.
 예를 들어 p95만 내려가고 DB wait가 오르면 병목 위치가 옮겨진 것일 수 있다.
+
+### 실측 결과
+
+| 지표 | 튜닝 전 | 튜닝 후 | 변화 |
+|------|---------|---------|------|
+| API p95 | — | — | — |
+| API p99 | — | — | — |
+| Hikari connection wait (평균) | — | — | — |
+| Hikari connection wait (피크) | — | — | — |
+| 풀 사용률 (active/max) | ~14/15 | ~18/25 | 여유 확보 |
+| Tomcat busy threads (피크) | — | — | — |
+
+> 위 수치는 운영 환경 계측값이 확보되는 대로 업데이트할 예정이다.
 
 ---
 

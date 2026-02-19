@@ -45,6 +45,10 @@ ENTRYPOINT ["sh", "-c", "exec java -server -jar app.jar"]
 
 Layered JAR는 fat JAR 내부를 변경 빈도 기준으로 나눈다. 의존 레이어와 애플리케이션 레이어를 분리하면, 코드 변경 시 상단 레이어만 교체된다. 그래서 전송량이 코드 변경 크기에 더 가까워진다. 이 방식의 핵심은 JAR 분리 자체보다 Docker 레이어 매핑이다.
 
+Docker 이미지는 불변 레이어의 스택이다. 각 Dockerfile 명령(`COPY`, `RUN` 등)이 하나의 레이어를 만들고, 각 레이어는 내용의 SHA256 해시로 식별된다. push/pull 시 레지스트리는 이미 존재하는 해시의 레이어를 다시 전송하지 않는다.
+
+fat JAR 구조에서는 코드 1바이트가 바뀌어도 JAR 전체가 하나의 레이어이므로 해시가 바뀌고, 183MB를 통째로 다시 전송해야 한다. Layered JAR는 이 구조를 깬다. dependencies(185MB)는 코드 변경으로 해시가 바뀌지 않으니 전송을 건너뛰고, application(21.2MB)만 해시가 바뀌어 21.2MB만 전송한다. 183MB → 21.2MB 감소의 원리가 여기에 있다.
+
 | 레이어 | 크기 | 변경 빈도 |
 |--------|------|-----------|
 | dependencies | 185MB | 낮음 |
@@ -81,6 +85,10 @@ AppCDS는 클래스 로딩 결과를 아카이브로 저장하고 재사용한�
 ```
 
 아래 trainer 예시는 빌드 단계에서 `.jsa`를 생성하는 방식이다. 이 단계는 런타임 최적화 후보를 미리 준비하는 역할을 한다. 실제 효과는 런타임 classpath 조건에서 다시 확인해야 한다.
+
+trainer Dockerfile에서 DataSource, Redis, Flyway 등 여러 AutoConfiguration을 exclude하는 이유가 있다. trainer는 Docker 빌드 단계에서 실행되기 때문에 DB, Redis, 외부 API에 연결할 수 없다. 이 AutoConfiguration들이 활성화되면 연결을 시도하고, 연결 실패로 trainer 자체가 실패한다.
+
+`-Dspring.context.exit=onRefresh`는 Spring 컨텍스트 초기화(Bean 생성) 직전에 JVM을 종료시킨다. 이 조합으로 "클래스 로딩 결과만 수집하고, 외부 의존성 연결 없이 종료"하는 것이 trainer의 목적이다.
 
 ```dockerfile
 FROM eclipse-temurin:21-jre-jammy AS trainer
@@ -155,6 +163,12 @@ AppCDS 클래스 로딩 분포는 다음과 같았다. 이 결과는 현재 trai
 | JDK(jrt:) | 1,414 | 4.7% |
 | 기타 | 4,687 | 15.6% |
 
+이 분포가 의미하는 바를 짚어 보면, CDS에서 로딩된 35.6%는 trainer가 수집한 클래스 중 런타임에서도 실제로 사용된 비율이다. 주로 JDK 코어 클래스와 Spring 프레임워크 클래스가 여기에 해당한다.
+
+나머지 44.1%(JAR)은 trainer가 수집하지 못한 클래스다. trainer는 `-Dspring.context.exit=onRefresh` 시점에 멈추기 때문에, 실제 요청 처리 경로의 클래스(Controller, Service, Repository 등)를 로딩하지 못한다. 비즈니스 로직 클래스 대부분이 여기에 속한다.
+
+javaagent(OTEL 등)의 영향도 있다. agent가 런타임에 classpath를 변경하면 trainer 시점의 classpath fingerprint와 불일치가 생기고, 이 불일치가 CDS 적중 범위를 더 줄일 수 있다. Staging/Prod 환경에서 AppCDS 효과가 달라지는 원인 중 하나다.
+
 Docker Desktop의 기동 시간은 아래처럼 나왔다. 여기서는 AppCDS 체감 이득을 확인하지 못했다. 가상화 파일시스템 오버헤드와 측정 편차가 함께 작용한 것으로 봤다.
 
 | Round | Baseline | Optimized |
@@ -162,6 +176,16 @@ Docker Desktop의 기동 시간은 아래처럼 나왔다. 여기서는 AppCDS �
 | R1 | 27.826s | 33.729s |
 | R2 | 27.271s | 37.604s |
 | 평균 | 27.5s | 35.7s |
+
+---
+
+## Docker push/pull 시 실제로 일어나는 일
+
+fat JAR 구조에서 `docker push`를 하면, JAR 전체가 하나의 레이어다. 코드를 1줄 고치더라도 JAR의 해시가 바뀌고, 레지스트리는 183MB 레이어를 새로 받아야 한다.
+
+Layered JAR 구조에서 `docker push`를 하면, 레이어가 4개로 나뉜다. dependencies 레이어(185MB)는 코드 변경으로 내용이 바뀌지 않으므로 해시가 동일하다. 레지스트리에 이미 해당 해시가 있으니 전송을 건너뛴다. application 레이어(21.2MB)만 해시가 달라져서 이것만 전송한다.
+
+`docker pull`에서도 같은 원리가 적용된다. 운영 서버에 이미 이전 이미지의 dependencies 레이어가 캐시되어 있으면 다운로드하지 않는다. 새로 받는 건 application 레이어뿐이다. 배포 시간 단축 효과는 이 pull 단계에서 더 체감된다.
 
 ---
 
@@ -180,9 +204,13 @@ Docker Desktop의 기동 시간은 아래처럼 나왔다. 여기서는 AppCDS �
 
 ## 정리
 
-이 케이스에서 즉시 재현된 이득은 Layered JAR의 코드 변경 전송량 절감이었다. AppCDS는 적용 가치가 있지만, 환경 조건이 맞을 때 효과를 기대하는 접근이 안전했다. 그래서 일괄 도입보다 문제 우선순위와 환경 검증을 함께 두는 편이 현실적이었다. 다음 단계는 ECS Linux 환경에서 같은 이미지로 AppCDS를 재측정하는 것이다.
+Layered JAR와 AppCDS는 적용 판단이 다르다.
 
-같은 고민이 있으시면, 먼저 코드 변경 배포 전송량부터 계측해 보시는 것을 권한다. 이 숫자를 보면 Layered JAR 도입 우선순위를 바로 정할 수 있다. AppCDS는 그다음에 환경 조건을 맞춰 검증하는 순서가 안전했다.
+Layered JAR는 조건 없이 적용할 수 있다. 코드 변경 배포에서 전송량이 183MB에서 21.2MB로 줄어드는 효과가 즉시 나오고, 운영 복잡도가 거의 늘지 않는다.
+
+AppCDS는 조건부로 적용해야 한다. javaagent가 없는 환경(Dev 등)에서는 trainer와 runtime의 classpath가 일치하므로 적용이 비교적 수월하다. javaagent가 있는 환경(Staging/Prod)에서는 classpath fingerprint 불일치로 적중률이 달라질 수 있으므로, 환경별 검증을 먼저 통과해야 한다.
+
+다음 단계는 ECS Linux 환경에서 동일 이미지로 AppCDS를 재측정하는 것이다. Docker Desktop의 가상화 파일시스템과 실제 Linux 호스트에서 I/O 패턴이 다르기 때문에, 운영 환경 결과를 기준으로 최종 판단을 내릴 계획이다.
 
 ---
 
